@@ -1,0 +1,17 @@
+Collector sends data (web form / SMS / WhatsApp)
+          │
+          ▼
+     INGEST CONTROLLER
+  (receives raw input from outside world)
+          │
+          ▼ (for SMS only)
+       SMS PARSER
+  (translates raw text into structured data)
+          │
+          ▼
+    NORMALISER SERVICE
+  (validates everything, builds the event)
+          │
+          ▼
+  CONTRIBUTIONS SERVICE
+  (saves to database)
