@@ -3,10 +3,11 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { eq, and } from 'drizzle-orm';
+import { normalisePhoneNumber } from '../utils/phone.util';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { DrizzleDbService } from '../db/drizzle_db/drizzle_db.service';
 import { members, groups } from '../db/schema';
-import { eq, and } from 'drizzle-orm';
 
 @Injectable()
 export class MembersService {
@@ -33,12 +34,27 @@ export class MembersService {
       );
     }
 
+    // Normalise phone number to E.164 format before saving.
+  // This ensures all phone numbers in the database are consistent
+  // regardless of what format the caller provided.
+  let normalisedPhone: string | undefined = undefined;
+
+  if (dto.phoneNumber) {
+    try {
+      normalisedPhone = normalisePhoneNumber(dto.phoneNumber);
+    } catch (error) {
+      throw new BadRequestException(
+        `Invalid phone number: ${(error as Error).message}`,
+      );
+    }
+  }
+
     // Create the member
     const [member] = await this.drizzleDbService.db
       .insert(members)
       .values({
         name: dto.name,
-        phoneNumber: dto.phoneNumber,
+        phoneNumber: normalisedPhone,
         groupId: dto.groupId,
         role: dto.role ?? 'MEMBER',
       })

@@ -29,7 +29,7 @@ export class CreateContributionDto {
   @IsInt()
   @IsPositive()
   @Min(1) // minimum ₦1
-  amount: number; // users send in Naira e.g 5000 for ₦5,000
+  amount: number;
 
   @IsEnum(ContributionChannel)
   channel: ContributionChannel;

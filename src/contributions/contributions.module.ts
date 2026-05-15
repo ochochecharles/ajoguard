@@ -3,10 +3,33 @@ import { Module } from '@nestjs/common';
 import { ContributionsService } from './contributions.service';
 import { ContributionsController } from './contributions.controller';
 import { DrizzleDbModule } from 'src/db/drizzle_db/drizzle_db.module';
+import { BullModule } from '@nestjs/bullmq';
+import { ContributionProcessorService } from './contribution.processor/contribution.processor.service';
+import { ReconciliationModule } from 'src/reconciliation/reconciliation.module';
+import { AuditModule } from 'src/audit/audit.module';
+import { NotificationModule } from 'src/notification/notification.module';
+
 @Module({
-  imports: [DrizzleDbModule],
-  providers: [ContributionsService],
+  imports: [
+    ReconciliationModule,
+    DrizzleDbModule,
+    AuditModule,
+    NotificationModule,
+    BullModule.registerQueue({
+      name: 'contributions', // queue name
+      defaultJobOptions: {
+        attempts: 3,        
+        backoff: {
+          type: 'exponential', // wait longer between each retry
+          delay: 2000,         // start at 2 seconds
+        },
+        removeOnComplete: false, // keep completed jobs for inspection
+        removeOnFail: false,     // keep failed jobs for inspection
+      },
+    }),
+  ],
+  providers: [ContributionsService, ContributionProcessorService],
   controllers: [ContributionsController],
-  exports: [ContributionsService],
+  exports: [ContributionsService, BullModule],
 })
 export class ContributionsModule {}

@@ -15,3 +15,65 @@ Collector sends data (web form / SMS / WhatsApp)
           ▼
   CONTRIBUTIONS SERVICE
   (saves to database)
+
+AUDIT SERVICE does two things:
+1. WRITE  — record every contribution as a tamper-evident log entry
+2. VERIFY — walk through all entries and prove none were modified
+
+FULL PICTURE OF ONE CONTRIBUTION FLOWING THROUGH AUDIT
+Contribution received
+        ↓
+Normaliser saves to database
+        ↓
+Job pushed to queue
+        ↓
+Processor picks up job
+        ↓
+AuditService.writeAuditLog(event)
+        ↓
+Get previous entry → prevHash = "a3f9b2c1..."
+        ↓
+Build entryData snapshot
+        ↓
+Compute entryHash = SHA256(prevHash + entryData)
+        ↓
+Compute hmacSig = HMAC(entryHash, secretKey)
+        ↓
+Save: prevHash + entryData + entryHash + hmacSig
+        ↓
+Chain grows by one link
+
+
+✅ Database schema          — groups, members, contributions,
+                              audit logs, reconciliation logs,
+                              notification logs, payouts
+
+✅ Groups module            — create and manage savings groups
+✅ Members module           — add members to groups
+✅ Contributions module     — view contribution records
+
+✅ Three input channels     — web form, SMS, WhatsApp
+✅ Ingestion normaliser     — validates every contribution
+✅ Deduplication            — prevents duplicate transactions
+
+✅ Redis queue              — BullMQ background job processing
+✅ Contribution processor   — orchestrates all background work
+
+✅ Reconciliation engine    — detects missing payments,
+                              tracks group balance,
+                              nightly scheduler
+
+✅ Audit log writer         — tamper-evident hash chain,
+                              HMAC signatures,
+                              verification scanner
+
+✅ Notification worker      — contribution confirmations,
+                              missing payment alerts,
+                              weekly summaries
+
+✅ Export API               — full group report,
+                              member contribution history,
+                              audit integrity proof
+
+✅ Bull Board               — queue monitoring dashboard
+✅ Swagger UI               — API documentation

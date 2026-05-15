@@ -12,7 +12,7 @@ import { CreateContributionDto, ContributionChannel } from '../contributions/dto
 import {  SmsParserService } from './sms.parser/sms.parser.service';
 import { WhatsappParserService } from './whatsapp.parser/whatsapp.parser.service';
 import { WhatsappReplyService } from './whatsapp-reply/whatsapp-reply.service';
-import { ApiTags } from '@nestjs/swagger';
+import { ApiTags, ApiOperation  } from '@nestjs/swagger';
 
 @ApiTags('ingest')
 @Controller('ingest')
@@ -26,13 +26,14 @@ export class IngestController {
     ) {}
 
   // Web form channel — simplest input, used by agents and group leaders
+  @ApiOperation({ summary: 'Ingest a contribution from the web channel' })
   @Post('web')
   async ingestFromWeb(@Body() dto: CreateContributionDto) {
 
     // Convert Naira to Kobo before normalising
   const normalisedDto = {
     ...dto,
-    amount: dto.amount * 100, // ₦5,000 → 500000 kobo
+    amount: dto.amount * 100, 
   };
 
     // rawPayload is the original request body as a string
@@ -55,6 +56,7 @@ export class IngestController {
 
   // POST /ingest/sms
   // Africa's Talking calls this webhook when an SMS is received
+  @ApiOperation({ summary: 'Ingest a contribution from the SMS channel' })
   @Post('sms')
   @HttpCode(200)
   async ingestFromSms(@Body() body: any) {
@@ -95,6 +97,7 @@ export class IngestController {
 
   // GET /ingest/whatsapp
   // Meta calls this once to verify your webhook is real
+  @ApiOperation({ summary: 'Verify the WhatsApp webhook' })
   @Get('whatsapp')
   verifyWhatsAppWebhook(@Query() query: any): string {
     const mode = query['hub.mode'];
@@ -113,6 +116,7 @@ export class IngestController {
 
   // POST /ingest/whatsapp
   // Meta calls this every time someone sends a message
+  @ApiOperation({ summary: 'Ingest a contribution from the WhatsApp channel' })
   @Post('whatsapp')
   @HttpCode(200)
   async ingestFromWhatsApp(@Body() body: any) {

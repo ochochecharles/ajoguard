@@ -2,6 +2,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { DrizzleDbService } from '../../db/drizzle_db/drizzle_db.service';
 import { members } from '../../db/schema';
+import { normalisePhoneNumber } from '../../utils/phone.util';
 import { eq, and } from 'drizzle-orm';
 
 export interface ParsedSms {
@@ -55,21 +56,42 @@ export class SmsParserService {
   // Resolve phone numbers to actual member records in the database
   async resolveMembers(parsed: ParsedSms, groupId?: string) {
 
+    // Normalise both phone numbers before database lookup.
+  // The database stores E.164 format so lookups must also use E.164.
+  let normalisedCollectorPhone: string;
+  let normalisedMemberPhone: string;
+
+  try {
+    normalisedCollectorPhone = normalisePhoneNumber(parsed.collectorPhoneNumber);
+  } catch {
+    throw new BadRequestException(
+      `Invalid collector phone number: ${parsed.collectorPhoneNumber}`,
+    );
+  }
+
+  try {
+    normalisedMemberPhone = normalisePhoneNumber(parsed.memberPhoneNumber);
+  } catch {
+    throw new BadRequestException(
+      `Invalid member phone number: ${parsed.memberPhoneNumber}`,
+    );
+  }
+
     // Find the collector by their phone number
     const [collector] = await this.drizzleDbService.db
       .select()
       .from(members)
-      .where(eq(members.phoneNumber, parsed.collectorPhoneNumber));
+      .where(eq(members.phoneNumber, normalisedCollectorPhone));
 
     if (!collector) {
       throw new BadRequestException(
-        `Phone number ${parsed.collectorPhoneNumber} is not registered as a collector in any group`,
+        `Phone number ${normalisedCollectorPhone} is not registered as a collector in any group`,
       );
     }
 
     if (collector.role !== 'COLLECTOR') {
       throw new BadRequestException(
-        `${parsed.collectorPhoneNumber} is not authorised to log contributions`,
+        `Phone number ${normalisedCollectorPhone} is not authorised to log contributions`,
       );
     }
 
@@ -80,14 +102,14 @@ export class SmsParserService {
       .from(members)
       .where(
         and(
-          eq(members.phoneNumber, parsed.memberPhoneNumber),
+          eq(members.phoneNumber, normalisedMemberPhone),
           eq(members.groupId, collector.groupId),
         ),
       );
 
     if (!member) {
       throw new BadRequestException(
-        `No member with phone number ${parsed.memberPhoneNumber} found in your group`,
+        `No member with phone number ${normalisedMemberPhone} found in your group`,
       );
     }
 

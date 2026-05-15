@@ -1,7 +1,11 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
+import { BullBoardModule } from '@bull-board/nestjs';
+import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
+import { ExpressAdapter } from '@bull-board/express';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { DrizzleDbModule } from './db/drizzle_db/drizzle_db.module';
 import { GroupsModule } from './groups/groups.module';
 import { BullModule } from '@nestjs/bullmq';
@@ -9,17 +13,48 @@ import { MembersModule } from './members/members.module';
 import { ContributionsModule } from './contributions/contributions.module';
 import { NormaliserModule } from './normaliser/normaliser.module';
 import { IngestModule } from './ingest/ingest.module';
+import { ReconciliationModule } from './reconciliation/reconciliation.module';
+import { AuditModule } from './audit/audit.module';
+import { NotificationModule } from './notification/notification.module';
+import { ExportModule } from './export/export.module';
 
 @Module({
-  imports: [DrizzleDbModule, ConfigModule.forRoot({
-    isGlobal: true,
-  }),
-  BullModule.forRoot({
-      connection: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379') ,
-      },
-    }), GroupsModule, MembersModule, ContributionsModule, NormaliserModule, IngestModule],
+  imports: [
+    AuditModule, 
+    GroupsModule, 
+    MembersModule, 
+    ContributionsModule, 
+    NormaliserModule, 
+    IngestModule, 
+    ReconciliationModule,
+    DrizzleDbModule, 
+    NotificationModule,
+    ScheduleModule.forRoot(),
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
+    BullModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        connection: {
+          host: configService.get<string>('REDIS_HOST'),
+          port: configService.get<number>('REDIS_PORT'),
+          // password: configService.get<string>('REDIS_PASSWORD'),
+          // tls: {}, // required for Upstash
+        },
+      }),
+    }),
+    BullBoardModule.forRoot({
+      route: '/admin/queues',
+      adapter: ExpressAdapter,
+    }),
+    BullBoardModule.forFeature({
+      name: 'contributions',
+      adapter: BullMQAdapter,
+    }),
+    ExportModule,
+    
+  ],
   controllers: [AppController],
   providers: [AppService],
 })

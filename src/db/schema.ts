@@ -30,6 +30,11 @@ export const memberRoleEnum = pgEnum('member_role', [
   'COLLECTOR',
 ]);
 
+export const reconciliationStatusEnum = pgEnum('reconciliation_status', [
+  'HEALTHY',
+  'DISCREPANCY',
+]);
+
 // Groups
 
 export const groups = pgTable('groups', {
@@ -38,6 +43,9 @@ export const groups = pgTable('groups', {
   description:   text('description'),
   cycleAmount:   integer('cycle_amount').notNull(), // in kobo
   cycleInterval: text('cycle_interval').notNull(),  // "weekly" | "monthly"
+  cycleStartDate:  timestamp('cycle_start_date'),   // when current cycle began
+  totalMembers:    integer('total_members').notNull().default(0), // members in rotation
+  currentPosition: integer('current_position').notNull().default(1), // whose turn
   isActive:      boolean('is_active').notNull().default(true),
   createdAt:     timestamp('created_at').notNull().defaultNow(),
   updatedAt:     timestamp('updated_at').notNull().defaultNow(),
@@ -52,6 +60,7 @@ export const members = pgTable('members', {
   role:        memberRoleEnum('role').notNull().default('MEMBER'),
   status:      memberStatusEnum('status').notNull().default('ACTIVE'),
   groupId:     uuid('group_id').notNull().references(() => groups.id),
+  payoutOrder: integer('payout_order'), // position in rotation e.g 1, 2, 3
   createdAt:   timestamp('created_at').notNull().defaultNow(),
   updatedAt:   timestamp('updated_at').notNull().defaultNow(),
 });
@@ -100,4 +109,26 @@ export const notificationLogs = pgTable('notification_logs', {
   attempts:  integer('attempts').notNull().default(0),
   sentAt:    timestamp('sent_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const payouts = pgTable('payouts', {
+  id:              uuid('id').primaryKey().defaultRandom(),
+  groupId:         uuid('group_id').notNull().references(() => groups.id),
+  recipientId:     uuid('recipient_id').notNull().references(() => members.id),
+  recordedById:    uuid('recorded_by_id').notNull().references(() => members.id),
+  amount:          integer('amount').notNull(),        // in kobo
+  cycleIdentifier: text('cycle_identifier').notNull(), // e.g "2026-W17"
+  payoutDate:      timestamp('payout_date').notNull(),
+  createdAt:       timestamp('created_at').notNull().defaultNow(),
+});
+
+export const reconciliationLogs = pgTable('reconciliation_logs', {
+  id:               uuid('id').primaryKey().defaultRandom(),
+  groupId:          uuid('group_id').notNull().references(() => groups.id),
+  cycleIdentifier:  text('cycle_identifier').notNull(),
+  totalExpected:    integer('total_expected').notNull(),
+  totalCollected:   integer('total_collected').notNull(),
+  missingMembers:   jsonb('missing_members').notNull().default([]),
+  status:           reconciliationStatusEnum('status').notNull(),
+  checkedAt:        timestamp('checked_at').notNull().defaultNow(),
 });

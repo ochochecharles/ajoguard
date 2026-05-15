@@ -15,18 +15,6 @@ export class ContributionsService {
   // Save a contribution event to the database
   async save(event: ContributionEvent) {
 
-    // Check idempotency key — reject if this exact event was already saved
-    const [existing] = await this.drizzleDbService.db
-      .select()
-      .from(contributions)
-      .where(eq(contributions.idempotencyKey, event.idempotencyKey));
-
-    if (existing) {
-      throw new ConflictException(
-        `Duplicate contribution detected. This payment was already recorded.`
-      );
-    }
-
     const [contribution] = await this.drizzleDbService.db
       .insert(contributions)
       .values({
@@ -101,8 +89,8 @@ export class ContributionsService {
     failureReason?: string,
   ) {
     const [updated] = await this.drizzleDbService.db
-      .update(contributions)
-      .set({
+    .update(contributions)
+    .set({
         status,
         failureReason: failureReason ?? null,
         processedAt: new Date(),

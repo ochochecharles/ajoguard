@@ -8,6 +8,13 @@
       "when": 1775938637450,
       "tag": "0000_steep_korath",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778053264356,
+      "tag": "0001_mushy_blackheart",
+      "breakpoints": true
     }
   ]
 }
