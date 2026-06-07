@@ -55,6 +55,7 @@ export class MembersService {
       .values({
         name: dto.name,
         phoneNumber: normalisedPhone,
+        email: dto.email,
         groupId: dto.groupId,
         role: dto.role ?? 'MEMBER',
       })

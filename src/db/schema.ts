@@ -57,6 +57,7 @@ export const members = pgTable('members', {
   id:          uuid('id').primaryKey().defaultRandom(),
   name:        text('name').notNull(),
   phoneNumber: text('phone_number'),
+  email:       text('email').unique(),
   role:        memberRoleEnum('role').notNull().default('MEMBER'),
   status:      memberStatusEnum('status').notNull().default('ACTIVE'),
   groupId:     uuid('group_id').notNull().references(() => groups.id),

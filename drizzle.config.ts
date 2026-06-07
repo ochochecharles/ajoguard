@@ -9,13 +9,10 @@ if (!process.env.DATABASE_URL) {
 }
 
 export default {
-  // Where your schema file(s) live
   schema: './src/db/schema.ts',
 
-  // Where generated SQL migration files will be saved
   out: './drizzle',
 
-  // We're using Neon = PostgreSQL
   dialect: 'postgresql',
 
   dbCredentials: {

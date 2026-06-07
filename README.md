@@ -88,7 +88,7 @@ WhatsApp   ─┘    (validates)         (BullMQ)
 | Technology | Purpose |
 |---|---|
 | **NestJS** | Backend framework |
-| **PostgreSQL** (Neon) | Primary database |
+| **PostgreSQL** (Docker) | Primary database |
 | **Drizzle ORM** | Database queries and migrations |
 | **Redis** (Docker) | Queue storage |
 | **BullMQ** | Background job processing |
@@ -143,7 +143,7 @@ WhatsApp   ─┘    (validates)         (BullMQ)
 
 - Node.js v20+
 - Docker Desktop (for Redis)
-- PostgreSQL database (Neon recommended)
+- PostgreSQL database
 
 ### Installation
 
@@ -155,8 +155,9 @@ cd ajoguard-backend
 # Install dependencies
 npm install
 
-# Start Redis
+# Start Redis & Postgres
 docker run -d --name ajoguard-redis -p 6379:6379 redis
+docker run -d --name postgres-db -p 5432:5432 postgres
 
 # Set up environment variables
 cp .env.example .env
@@ -208,6 +209,14 @@ META_VERIFY_TOKEN=your_webhook_verify_token
 ---
 
 ## API Endpoints
+
+### Auth
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/auth/register` | Create a new collector account and savings group |
+| `POST` | `/auth/request-otp` | Send a 6-digit login code to the collector email address |
+| `POST` | `/auth/verify-otp` | Verify the 6-digit code and receive a JWT access token |
 
 ### Groups
 

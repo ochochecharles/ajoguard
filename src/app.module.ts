@@ -3,6 +3,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { BullBoardModule } from '@bull-board/nestjs';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
+import { ServeStaticModule } from '@nestjs/serve-static';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -17,6 +18,8 @@ import { ReconciliationModule } from './reconciliation/reconciliation.module';
 import { AuditModule } from './audit/audit.module';
 import { NotificationModule } from './notification/notification.module';
 import { ExportModule } from './export/export.module';
+import { join } from 'path';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -33,13 +36,17 @@ import { ExportModule } from './export/export.module';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    ServeStaticModule.forRoot({
+      rootPath: join(process.cwd(), 'public'), // use process.cwd() not __dirname
+      serveRoot: '/dashboard',
+    }),
     BullModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         connection: {
           host: configService.get<string>('REDIS_HOST'),
           port: configService.get<number>('REDIS_PORT'),
-          // password: configService.get<string>('REDIS_PASSWORD'),
+          url: configService.get<string>('REDIS_URL'), // Production url
           // tls: {}, // required for Upstash
         },
       }),
@@ -53,6 +60,7 @@ import { ExportModule } from './export/export.module';
       adapter: BullMQAdapter,
     }),
     ExportModule,
+    AuthModule,
     
   ],
   controllers: [AppController],

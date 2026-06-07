@@ -5,6 +5,7 @@ import {
   IsUUID,
   IsEnum,
   IsMobilePhone,
+  IsEmail,
 } from 'class-validator';
 
 export enum MemberRole {
@@ -20,6 +21,10 @@ export class CreateMemberDto {
   @IsOptional()
   @IsMobilePhone()
   phoneNumber?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
 
   @IsUUID()
   @IsNotEmpty()

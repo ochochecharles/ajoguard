@@ -5,10 +5,12 @@ import { NormaliserModule } from '../normaliser/normaliser.module';
 import { SmsParserService } from './sms.parser/sms.parser.service';
 import { WhatsappParserService } from './whatsapp.parser/whatsapp.parser.service';
 import { WhatsappReplyService } from './whatsapp-reply/whatsapp-reply.service';
+import { AuthModule } from 'src/auth/auth.module';
 
 @Module({
   imports: [
     NormaliserModule,
+    AuthModule,
   ],
   controllers: [IngestController],
   providers: [

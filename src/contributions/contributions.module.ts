@@ -8,6 +8,7 @@ import { ContributionProcessorService } from './contribution.processor/contribut
 import { ReconciliationModule } from 'src/reconciliation/reconciliation.module';
 import { AuditModule } from 'src/audit/audit.module';
 import { NotificationModule } from 'src/notification/notification.module';
+import { AuthModule } from 'src/auth/auth.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { NotificationModule } from 'src/notification/notification.module';
     DrizzleDbModule,
     AuditModule,
     NotificationModule,
+    AuthModule,
     BullModule.registerQueue({
       name: 'contributions', // queue name
       defaultJobOptions: {

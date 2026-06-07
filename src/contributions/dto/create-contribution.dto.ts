@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   IsEnum,
   Min,
+  IsOptional,
 } from 'class-validator';
 
 export enum ContributionChannel {
@@ -23,7 +24,7 @@ export class CreateContributionDto {
   memberId: string;
 
   @IsUUID()
-  @IsNotEmpty()
+  @IsOptional()
   collectorId: string;
 
   @IsInt()

@@ -6,6 +6,8 @@ import {
   Get,
   Query,
   Logger,
+  UseGuards,
+  Req,  ForbiddenException,
 } from '@nestjs/common';
 import { NormaliserService } from '../normaliser/normaliser.service';
 import { CreateContributionDto, ContributionChannel } from '../contributions/dto/create-contribution.dto';
@@ -13,6 +15,7 @@ import {  SmsParserService } from './sms.parser/sms.parser.service';
 import { WhatsappParserService } from './whatsapp.parser/whatsapp.parser.service';
 import { WhatsappReplyService } from './whatsapp-reply/whatsapp-reply.service';
 import { ApiTags, ApiOperation  } from '@nestjs/swagger';
+import { JwtAuthGuard } from 'src/auth/jwt.guard';
 
 @ApiTags('ingest')
 @Controller('ingest')
@@ -27,18 +30,23 @@ export class IngestController {
 
   // Web form channel — simplest input, used by agents and group leaders
   @ApiOperation({ summary: 'Ingest a contribution from the web channel' })
+  @UseGuards(JwtAuthGuard)
   @Post('web')
-  async ingestFromWeb(@Body() dto: CreateContributionDto) {
+  async ingestFromWeb(@Body() dto: CreateContributionDto, @Req() req: any) {
+    
+    // Override collectorId with the authenticated collector's ID
+    // Never trust the client to send the correct collectorId
+    dto.collectorId = req.user.collectorId;
+
+    // rawPayload is the original request body as a string
+    // We store this forever so we can always prove what was received
+    const rawPayload = JSON.stringify(dto);
 
     // Convert Naira to Kobo before normalising
   const normalisedDto = {
     ...dto,
     amount: dto.amount * 100, 
   };
-
-    // rawPayload is the original request body as a string
-    // We store this forever so we can always prove what was received
-    const rawPayload = JSON.stringify(dto);
 
     const event = await this.normaliserService.normalise(normalisedDto, rawPayload);
 

@@ -3,12 +3,17 @@ import {
   Get,
   Param,
   Res,
+  UseGuards,
+  Req,
+  ForbiddenException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { ExportService } from './export.service';
+import { JwtAuthGuard } from 'src/auth/jwt.guard';
 
 @ApiTags('export')
+@UseGuards(JwtAuthGuard)
 @Controller('export')
 export class ExportController {
   constructor(private readonly exportService: ExportService) {}
@@ -21,7 +26,11 @@ export class ExportController {
   async generateGroupReportJson(
     @Param('groupId') groupId: string,
     @Res() res: Response,
+    @Req() req: any,
   ) {
+    if (groupId !== req.user.groupId) {
+      throw new ForbiddenException('You can only export your own group');
+    }
     const report = await this.exportService.generateGroupReport(groupId);
     const filename = `ajoguard-group-${groupId.slice(0, 8)}-${Date.now()}.json`;
 
@@ -36,7 +45,11 @@ export class ExportController {
   async generateGroupReportPdf(
     @Param('groupId') groupId: string,
     @Res() res: Response,
+    @Req() req: any,
   ) {
+    if (groupId !== req.user.groupId) {
+      throw new ForbiddenException('You can only export your own group');
+    }
     const report = await this.exportService.generateGroupReport(groupId);
     const filename = `ajoguard-group-${groupId.slice(0, 8)}.pdf`;
 
@@ -52,7 +65,11 @@ export class ExportController {
   async generateGroupReportCsv(
     @Param('groupId') groupId: string,
     @Res() res: Response,
+    @Req() req: any,
   ) {
+    if (groupId !== req.user.groupId) {
+      throw new ForbiddenException('You can only export your own group');
+    }
     const report = await this.exportService.generateGroupReport(groupId);
     const filename = `ajoguard-group-${groupId.slice(0, 8)}.csv`;
 
