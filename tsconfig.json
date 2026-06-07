@@ -23,7 +23,4 @@
     "noFallthroughCasesInSwitch": false,
     "strictPropertyInitialization": false
   },
-  // "plugins":[
-  //   {"name": "@nestjs/swagger"}
-  // ]
 }
