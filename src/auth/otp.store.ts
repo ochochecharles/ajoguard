@@ -19,12 +19,12 @@ export class OtpStore implements OnModuleDestroy {
   private readonly COOLDOWN_SECONDS = 60;
 
   constructor(private readonly configService: ConfigService) {
-    this.redis = new Redis({
-      host: this.configService.get<string>('REDIS_HOST', 'localhost'),
-      port: this.configService.get<number>('REDIS_PORT', 6379),
-      // Reconnect automatically if connection drops
-      retryStrategy: (times) => Math.min(times * 500, 3000),
-    });
+    this.redis = new Redis(
+      this.configService.getOrThrow<string>('REDIS_URL'),
+      {
+        retryStrategy: (times) => Math.min(times * 500, 3000),
+      },
+    );
 
     this.redis.on('connect', () => {
       this.logger.log('OTP store connected to Redis');

@@ -14,6 +14,7 @@ export class DrizzleDbService {
 
     const pool = new Pool({
       connectionString: url,
+      ssl: { rejectUnauthorized: false }, // Render Postgres requires SSL
     });
 
     this.db = drizzle(pool, { schema });
