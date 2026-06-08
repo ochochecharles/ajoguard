@@ -108,6 +108,7 @@ export class AuthService {
 
   //login flow
   async requestOtp(email: string): Promise<{ message: string }> {
+  try {
     const normalisedEmail = email.toLowerCase().trim();
 
     // Check cooldown — prevent OTP spam
@@ -147,7 +148,6 @@ export class AuthService {
     try {
       await this.emailService.sendOtp(normalisedEmail, collector.name, otp);
     } catch (error) {
-      // Clean up the stored OTP since we could not deliver it
       await this.otpStore.set(normalisedEmail, '______');
       this.logger.error(
         `OTP email delivery failed for ${normalisedEmail}: ${(error as Error).message}`,
@@ -160,7 +160,11 @@ export class AuthService {
     return {
       message: 'If this email is registered, an OTP has been sent',
     };
+  } catch (error) {
+    this.logger.error(`requestOtp crashed: ${(error as Error).message}`, (error as Error).stack);
+    throw error;
   }
+}
 
   async verifyOtp(
     email: string,
