@@ -285,13 +285,14 @@ http://localhost:3000/admin/queues
 ```
 ajoguard
 ├─ .prettierrc
-├─ comment.txt
 ├─ drizzle
 │  ├─ 0000_steep_korath.sql
 │  ├─ 0001_mushy_blackheart.sql
+│  ├─ 0002_mysterious_scourge.sql
 │  └─ meta
 │     ├─ 0000_snapshot.json
 │     ├─ 0001_snapshot.json
+│     ├─ 0002_snapshot.json
 │     └─ _journal.json
 ├─ drizzle.config.ts
 ├─ eslint.config.mjs
@@ -309,6 +310,16 @@ ajoguard
 │  │  ├─ audit.module.ts
 │  │  ├─ audit.service.spec.ts
 │  │  └─ audit.service.ts
+│  ├─ auth
+│  │  ├─ auth.controller.spec.ts
+│  │  ├─ auth.controller.ts
+│  │  ├─ auth.module.ts
+│  │  ├─ auth.service.spec.ts
+│  │  ├─ auth.service.ts
+│  │  ├─ email.service.ts
+│  │  ├─ jwt.guard.ts
+│  │  ├─ jwt.strategy.ts
+│  │  └─ otp.store.ts
 │  ├─ bull-board.setup.ts
 │  ├─ contributions
 │  │  ├─ contribution.processor

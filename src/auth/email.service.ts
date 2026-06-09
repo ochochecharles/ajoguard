@@ -1,114 +1,58 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
-import { Transporter } from 'nodemailer';
+import { Resend } from 'resend';
 
-/**
- * EmailService handles all outgoing emails from AjoGuard.
- * Currently used for OTP delivery during collector authentication.
- *
- * Uses Nodemailer with Gmail SMTP under the hood.
- * Requires a Gmail App Password — not your regular Gmail password.
- */
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private readonly transporter: Transporter;
+  private readonly resend: Resend;
   private readonly fromAddress: string;
 
   constructor(private readonly configService: ConfigService) {
-    this.fromAddress = this.configService.getOrThrow<string>('SMTP_FROM');
-
-    this.transporter = nodemailer.createTransport({
-      host:   this.configService.getOrThrow<string>('SMTP_HOST'),
-      port:   this.configService.get<number>('SMTP_PORT', 465),
-      secure: true, // false for port 587 (STARTTLS), true for port 465 (SSL)
-      auth: {
-        user: this.configService.getOrThrow<string>('SMTP_USER'),
-        pass: this.configService.getOrThrow<string>('SMTP_PASS'),
-      },
-    });
+    this.resend = new Resend(
+      this.configService.getOrThrow<string>('RESEND_API_KEY'),
+    );
+    this.fromAddress = this.configService.getOrThrow<string>('RESEND_FROM');
   }
 
-  /**
-   * Sends a one-time login code to the collector's email address.
-   *
-   * @param email     - Recipient email address
-   * @param name      - Collector's name for personalisation
-   * @param otp       - The 6-digit login code
-   */
   async sendOtp(email: string, name: string, otp: string): Promise<void> {
-    const subject = 'Your AjoGuard Login Code';
-    const html    = this.buildOtpEmail(name, otp);
-
     try {
-      await this.transporter.sendMail({
-        from:    this.fromAddress,
-        to:      email,
-        subject,
-        html,
+      await this.resend.emails.send({
+        from: this.fromAddress,
+        to: email,
+        subject: 'Your AjoGuard Login Code',
+        html: this.buildOtpEmail(name, otp),
       });
-
       this.logger.log(`OTP email sent to ${email}`);
-
     } catch (error) {
       this.logger.error(
         `Failed to send OTP email to ${email}: ${(error as Error).message}`,
       );
-      // Re-throw so AuthService knows the email failed
-      // and can return an appropriate error to the collector
       throw error;
     }
   }
 
-  /**
-   * Sends a welcome email when a collector is first added to the system.
-   * Lets them know their account is ready and how to log in.
-   *
-   * @param email   - Collector's email address
-   * @param name    - Collector's name
-   * @param groupName - The group they manage
-   */
   async sendWelcome(
     email: string,
     name: string,
     groupName: string,
   ): Promise<void> {
     try {
-      await this.transporter.sendMail({
-        from:    this.fromAddress,
-        to:      email,
+      await this.resend.emails.send({
+        from: this.fromAddress,
+        to: email,
         subject: `Welcome to AjoGuard — ${groupName}`,
-        html:    this.buildWelcomeEmail(name, groupName),
+        html: this.buildWelcomeEmail(name, groupName),
       });
-
       this.logger.log(`Welcome email sent to ${email}`);
-
     } catch (error) {
-      // Welcome email failure should not block member creation
-      // so we log but do not throw
       this.logger.error(
         `Failed to send welcome email to ${email}: ${(error as Error).message}`,
       );
+      // Don't throw — welcome email failure shouldn't block member creation
     }
   }
 
-  /**
-   * Verify SMTP connection on startup.
-   * Useful for catching misconfigured credentials early.
-   */
-  async verifyConnection(): Promise<boolean> {
-    try {
-      await this.transporter.verify();
-      this.logger.log('SMTP connection verified successfully');
-      return true;
-    } catch (error) {
-      this.logger.error(
-        'SMTP connection failed: ' + (error as Error).message,
-      );
-      return false;
-    }
-  }
 
   // ─── Email templates ──────────────────────────────────
 
