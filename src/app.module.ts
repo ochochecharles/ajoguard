@@ -21,7 +21,6 @@ import { ExportModule } from './export/export.module';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
 import { BullBoardSetup } from './bull-board.setup';
-import { AdminAuthMiddleware } from './auth/admin-auth.middleware';
 import { RequestLoggerMiddleware } from './common/request-logger.middleware';
 import { validate } from './config/env.validation';
 
@@ -81,7 +80,6 @@ import { validate } from './config/env.validation';
   controllers: [AppController],
   providers: [
     AppService,
-    AdminAuthMiddleware,
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,

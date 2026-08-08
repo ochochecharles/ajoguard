@@ -7,6 +7,7 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { JwtAuthGuard } from './jwt.guard';
 import { RolesGuard } from './roles.guard';
+import { AdminAuthMiddleware } from './admin-auth.middleware';
 import { DrizzleDbModule } from '../db/drizzle_db/drizzle_db.module';
 
 @Module({
@@ -31,9 +32,21 @@ import { DrizzleDbModule } from '../db/drizzle_db/drizzle_db.module';
       }),
     }),
   ],
-  providers: [AuthService, JwtStrategy, JwtAuthGuard, RolesGuard],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    JwtAuthGuard,
+    RolesGuard,
+    AdminAuthMiddleware,
+  ],
 
   controllers: [AuthController],
-  exports: [JwtAuthGuard, RolesGuard, AuthService, JwtModule],
+  exports: [
+    JwtAuthGuard,
+    RolesGuard,
+    AdminAuthMiddleware,
+    AuthService,
+    JwtModule,
+  ],
 })
 export class AuthModule {}
