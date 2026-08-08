@@ -4,13 +4,25 @@ import {
   IsInt,
   Min,
   Max,
+  MinLength,
   IsOptional,
   IsIn,
+  IsDefined,
   IsUrl,
-  Matches,
   ValidateIf,
+  Validate,
 } from 'class-validator';
 import { validateSync } from 'class-validator';
+
+export function isPostgresUrl(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'postgres:' || url.protocol === 'postgresql:';
+  } catch {
+    return false;
+  }
+}
 
 export class EnvironmentVariables {
   @IsIn(['development', 'production', 'test'])
@@ -22,7 +34,9 @@ export class EnvironmentVariables {
   @IsOptional()
   PORT?: number = 3000;
 
-  @IsUrl({ require_tld: false })
+  @IsDefined()
+  @IsString()
+  @Validate(isPostgresUrl)
   DATABASE_URL: string;
 
   // Redis
@@ -50,7 +64,7 @@ export class EnvironmentVariables {
   DATABASE_SSL_REJECT_UNAUTHORIZED?: string;
 
   @IsString()
-  @Min(16)
+  @MinLength(16)
   AUDIT_HMAC_SECRET: string;
 
   // Telegram
@@ -58,18 +72,18 @@ export class EnvironmentVariables {
   @IsOptional()
   TELEGRAM_BOT_TOKEN?: string;
 
-  @IsUrl({ require_protocol: true })
+  @IsString()
   @IsOptional()
   TELEGRAM_WEBHOOK_URL?: string;
 
   // Required for the webhook to accept updates (rejects 401 when missing).
   @IsString()
-  @Min(8)
+  @MinLength(8)
   TELEGRAM_WEBHOOK_SECRET: string;
 
   // Auth
   @IsString()
-  @Min(32)
+  @MinLength(32)
   JWT_SECRET: string;
 
   @IsString()
@@ -89,11 +103,11 @@ export class EnvironmentVariables {
   @IsOptional()
   GOOGLE_CLIENT_SECRET?: string;
 
-  @IsUrl({ require_protocol: true })
+  @IsUrl({ require_protocol: true, require_tld: false })
   @IsOptional()
   GOOGLE_CALLBACK_URL?: string;
 
-  @IsUrl({ require_protocol: true })
+  @IsUrl({ require_protocol: true, require_tld: false })
   @IsOptional()
   CLIENT_ORIGIN?: string;
 
