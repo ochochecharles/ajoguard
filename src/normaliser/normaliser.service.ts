@@ -16,12 +16,11 @@ import { ContributionEvent } from '../contributions/interfaces/contribution-even
 import { CreateContributionDto } from '../contributions/dto/create-contribution.dto';
 import { groups, members, contributions } from '../db/schema';
 
-
 /**
  * NormaliserService — the security checkpoint of the AjoGuard ingestion pipeline.
  *
  * Every contribution entering the system — regardless of which channel it came
- * from (web form, SMS, or WhatsApp) — must pass through this service before
+ * from (web form or Telegram) — must pass through this service before
  * it is saved to the database or queued for processing.
  *
  * The normaliser enforces five sequential steps:
@@ -33,14 +32,14 @@ import { groups, members, contributions } from '../db/schema';
  *
  * Design principle: this service is intentionally channel-agnostic.
  * It receives a CreateContributionDto regardless of whether the data
- * originated from a web form, an SMS parser, or a WhatsApp parser.
+ * originated from a web form or a Telegram bot.
  * The channel adapters in IngestController handle translation;
  * this service handles validation and persistence.
  */
 @Injectable()
 export class NormaliserService {
-    private readonly logger = new Logger(NormaliserService.name);
-  
+  private readonly logger = new Logger(NormaliserService.name);
+
   constructor(
     private readonly drizzleDbService: DrizzleDbService,
     private readonly contributionsService: ContributionsService,
@@ -53,13 +52,12 @@ export class NormaliserService {
      */
     @InjectQueue('contributions') private readonly contributionQueue: Queue,
   ) {}
-  
-// normalise method — the main entry point for all contribution data
+
+  // normalise method — the main entry point for all contribution data
   async normalise(
     dto: CreateContributionDto,
     rawPayload: string,
   ): Promise<ContributionEvent> {
-
     const { group, member, collector } = await this.resolve(dto);
 
     await this.validate(dto, group, member, collector);
@@ -72,15 +70,15 @@ export class NormaliserService {
     // This is the canonical format used by all downstream systems
     // (processor, reconciliation engine, audit log writer).
     const event: ContributionEvent = {
-      eventId:        randomUUID(),   
-      groupId:        dto.groupId,
-      memberId:       dto.memberId,
-      collectorId:    dto.collectorId,
-      amount:         dto.amount,     
-      channel:        dto.channel,
-      rawPayload,                     
+      eventId: randomUUID(),
+      groupId: dto.groupId,
+      memberId: dto.memberId,
+      collectorId: dto.collectorId,
+      amount: dto.amount,
+      channel: dto.channel,
+      rawPayload,
       idempotencyKey,
-      receivedAt:     new Date(),    
+      receivedAt: new Date(),
     };
 
     // Persist to database with status PENDING.
@@ -94,7 +92,7 @@ export class NormaliserService {
     // method is somehow called twice for the same contribution.
     await this.contributionQueue.add(
       'process-contribution', // job name — what type of job is this
-      event,                  // job data — the actual payload
+      event, // job data — the actual payload
       {
         jobId: event.idempotencyKey,
       },
@@ -105,7 +103,6 @@ export class NormaliserService {
 
   // resolve helper method
   private async resolve(dto: CreateContributionDto) {
-
     // ── Group verification
 
     const [group] = await this.drizzleDbService.db
@@ -114,15 +111,11 @@ export class NormaliserService {
       .where(eq(groups.id, dto.groupId));
 
     if (!group) {
-      throw new NotFoundException(
-        `Group with ID ${dto.groupId} not found`,
-      );
+      throw new NotFoundException(`Group with ID ${dto.groupId} not found`);
     }
 
     if (!group.isActive) {
-      throw new BadRequestException(
-        `Group ${group.name} is no longer active`,
-      );
+      throw new BadRequestException(`Group ${group.name} is no longer active`);
     }
 
     // ── Member verification
@@ -131,10 +124,7 @@ export class NormaliserService {
       .select()
       .from(members)
       .where(
-        and(
-          eq(members.id, dto.memberId),
-          eq(members.groupId, dto.groupId),
-        ),
+        and(eq(members.id, dto.memberId), eq(members.groupId, dto.groupId)),
       );
 
     if (!member) {
@@ -155,10 +145,7 @@ export class NormaliserService {
       .select()
       .from(members)
       .where(
-        and(
-          eq(members.id, dto.collectorId),
-          eq(members.groupId, dto.groupId),
-        ),
+        and(eq(members.id, dto.collectorId), eq(members.groupId, dto.groupId)),
       );
 
     if (!collector) {
@@ -176,29 +163,29 @@ export class NormaliserService {
     }
 
     // Normalise phone numbers to E.164 format before returning.
-// This ensures notification service always receives a valid format
-// regardless of how the number was originally stored in the database.
-if (member.phoneNumber) {
-  try {
-    member.phoneNumber = normalisePhoneNumber(member.phoneNumber);
-  } catch {
-    // Log but do not block the contribution if normalisation fails.
-    // The contribution record is more important than the notification.
-    this.logger.warn(
-      `Could not normalise member phone number: ${member.phoneNumber}`,
-    );
-  }
-}
+    // This ensures notification service always receives a valid format
+    // regardless of how the number was originally stored in the database.
+    if (member.phoneNumber) {
+      try {
+        member.phoneNumber = normalisePhoneNumber(member.phoneNumber);
+      } catch {
+        // Log but do not block the contribution if normalisation fails.
+        // The contribution record is more important than the notification.
+        this.logger.warn(
+          `Could not normalise member phone number: ${member.phoneNumber}`,
+        );
+      }
+    }
 
-if (collector.phoneNumber) {
-  try {
-    collector.phoneNumber = normalisePhoneNumber(collector.phoneNumber);
-  } catch {
-    this.logger.warn(
-      `Could not normalise collector phone number: ${collector.phoneNumber}`,
-    );
-  }
-}
+    if (collector.phoneNumber) {
+      try {
+        collector.phoneNumber = normalisePhoneNumber(collector.phoneNumber);
+      } catch {
+        this.logger.warn(
+          `Could not normalise collector phone number: ${collector.phoneNumber}`,
+        );
+      }
+    }
 
     return { group, member, collector };
   }
@@ -210,11 +197,10 @@ if (collector.phoneNumber) {
     member: any,
     collector: any,
   ) {
-
     // ── Amount validation
     if (dto.amount !== group.cycleAmount) {
       throw new BadRequestException(
-        `Invalid amount. Expected ₦${group.cycleAmount / 100} (${group.cycleAmount} kobo) but received ${dto.amount / 100} kobo (₦${dto.amount})`,
+        `Invalid amount. Expected ₦${group.cycleAmount / 100} (${group.cycleAmount} kobo) but received ₦${dto.amount / 100} (${dto.amount} kobo)`,
       );
     }
 
@@ -232,7 +218,6 @@ if (collector.phoneNumber) {
 
   // buildIdempotencyKey helper method
   private buildIdempotencyKey(dto: CreateContributionDto): string {
-
     const timeWindow = Math.floor(Date.now() / 1000 / 60);
     const raw = `${dto.collectorId}:${dto.memberId}:${dto.amount}:${timeWindow}`;
     return createHash('sha256').update(raw).digest('hex');

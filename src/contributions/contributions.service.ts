@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { DrizzleDbService } from '../db/drizzle_db/drizzle_db.service';
 import { contributions, members, groups } from '../db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, count, desc } from 'drizzle-orm';
 import { ContributionEvent } from './interfaces/contribution-event.interface';
 
 @Injectable()
@@ -14,7 +14,6 @@ export class ContributionsService {
 
   // Save a contribution event to the database
   async save(event: ContributionEvent) {
-
     const [contribution] = await this.drizzleDbService.db
       .insert(contributions)
       .values({
@@ -35,7 +34,7 @@ export class ContributionsService {
   }
 
   // Get all contributions for a group
-  async findByGroup(groupId: string) {
+  async findByGroup(groupId: string, page = 1, limit = 50) {
     const [group] = await this.drizzleDbService.db
       .select()
       .from(groups)
@@ -45,14 +44,62 @@ export class ContributionsService {
       throw new NotFoundException(`Group with ID ${groupId} not found`);
     }
 
-    return await this.drizzleDbService.db
-      .select()
+    const offset = (page - 1) * limit;
+
+    const [total] = await this.drizzleDbService.db
+      .select({ count: count() })
       .from(contributions)
       .where(eq(contributions.groupId, groupId));
+
+    const items = (await this.drizzleDbService.db
+      .select()
+      .from(contributions)
+      .where(eq(contributions.groupId, groupId))
+      .orderBy(desc(contributions.receivedAt))
+      .limit(limit)
+      .offset(offset)).map((c) => this.toPublicContribution(c));
+
+    return {
+      data: items,
+      page,
+      limit,
+      total: total?.count ?? 0,
+      totalPages: Math.ceil((total?.count ?? 0) / limit),
+    };
   }
 
-  // Get all contributions for a specific member
-  async findByMember(memberId: string) {
+  // Resolve the groupId that owns a member (for access-control checks)
+  async findMemberGroupId(memberId: string) {
+    const [member] = await this.drizzleDbService.db
+      .select({ groupId: members.groupId })
+      .from(members)
+      .where(eq(members.id, memberId));
+
+    if (!member) {
+      throw new NotFoundException(`Member with ID ${memberId} not found`);
+    }
+
+    return member.groupId;
+  }
+
+  // Resolve the groupId that owns a contribution (for access-control checks)
+  async findContributionGroupId(contributionId: string) {
+    const [contribution] = await this.drizzleDbService.db
+      .select({ groupId: contributions.groupId })
+      .from(contributions)
+      .where(eq(contributions.id, contributionId));
+
+    if (!contribution) {
+      throw new NotFoundException(
+        `Contribution with ID ${contributionId} not found`,
+      );
+    }
+
+    return contribution.groupId;
+  }
+
+  // Get all contributions for a member
+  async findByMember(memberId: string, page = 1, limit = 50) {
     const [member] = await this.drizzleDbService.db
       .select()
       .from(members)
@@ -62,10 +109,28 @@ export class ContributionsService {
       throw new NotFoundException(`Member with ID ${memberId} not found`);
     }
 
-    return await this.drizzleDbService.db
-      .select()
+    const offset = (page - 1) * limit;
+
+    const [total] = await this.drizzleDbService.db
+      .select({ count: count() })
       .from(contributions)
       .where(eq(contributions.memberId, memberId));
+
+    const items = (await this.drizzleDbService.db
+      .select()
+      .from(contributions)
+      .where(eq(contributions.memberId, memberId))
+      .orderBy(desc(contributions.receivedAt))
+      .limit(limit)
+      .offset(offset)).map((c) => this.toPublicContribution(c));
+
+    return {
+      data: items,
+      page,
+      limit,
+      total: total?.count ?? 0,
+      totalPages: Math.ceil((total?.count ?? 0) / limit),
+    };
   }
 
   // Get a single contribution by ID
@@ -79,7 +144,7 @@ export class ContributionsService {
       throw new NotFoundException(`Contribution with ID ${id} not found`);
     }
 
-    return contribution;
+    return this.toPublicContribution(contribution);
   }
 
   // Update contribution status after queue processes it
@@ -89,8 +154,8 @@ export class ContributionsService {
     failureReason?: string,
   ) {
     const [updated] = await this.drizzleDbService.db
-    .update(contributions)
-    .set({
+      .update(contributions)
+      .set({
         status,
         failureReason: failureReason ?? null,
         processedAt: new Date(),
@@ -99,5 +164,24 @@ export class ContributionsService {
       .returning();
 
     return updated;
+  }
+
+  // Strips internal columns (rawPayload, idempotencyKey, failureReason) before returning
+  // and projects money to the public convention: Naira + ...InKobo raw.
+  private toPublicContribution(
+    contribution: typeof contributions.$inferSelect,
+  ) {
+    const {
+      rawPayload,
+      idempotencyKey,
+      failureReason,
+      amount,
+      ...publicPart
+    } = contribution;
+    return {
+      ...publicPart,
+      amount: amount / 100,
+      amountInKobo: amount,
+    };
   }
 }

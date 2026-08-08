@@ -22,6 +22,27 @@
       "when": 1779200658014,
       "tag": "0002_mysterious_scourge",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785779487206,
+      "tag": "0003_marvelous_cerise",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785797547025,
+      "tag": "0004_lyrical_morgan_stark",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785844271016,
+      "tag": "0005_luxuriant_pandemic",
+      "breakpoints": true
     }
   ]
 }

@@ -1,22 +1,15 @@
-// The work of the ingest module is to receive raw contribution data (e.g. from SMS, Web, Whatsapp), normalise it, and pass it to the normaliser module for validation and processing
+// The work of the ingest module is to receive raw contribution data (e.g. from the Web form and Telegram bot), normalise it, and pass it to the normaliser module for validation and processing
 import { Module } from '@nestjs/common';
 import { IngestController } from './ingest.controller';
 import { NormaliserModule } from '../normaliser/normaliser.module';
-import { SmsParserService } from './sms.parser/sms.parser.service';
-import { WhatsappParserService } from './whatsapp.parser/whatsapp.parser.service';
-import { WhatsappReplyService } from './whatsapp-reply/whatsapp-reply.service';
+import { TelegramBotService } from './telegram/telegram.bot.service';
+import { TelegramParserService } from './telegram/telegram.parser.service';
+import { DrizzleDbModule } from '../db/drizzle_db/drizzle_db.module';
 import { AuthModule } from 'src/auth/auth.module';
 
 @Module({
-  imports: [
-    NormaliserModule,
-    AuthModule,
-  ],
+  imports: [NormaliserModule, DrizzleDbModule, AuthModule],
   controllers: [IngestController],
-  providers: [
-    SmsParserService,
-    WhatsappParserService,
-    WhatsappReplyService,
-  ],
+  providers: [TelegramBotService, TelegramParserService],
 })
 export class IngestModule {}

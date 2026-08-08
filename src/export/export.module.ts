@@ -6,12 +6,8 @@ import { DrizzleDbModule } from 'src/db/drizzle_db/drizzle_db.module';
 import { AuthModule } from 'src/auth/auth.module';
 
 @Module({
-  imports: [
-    DrizzleDbModule,
-    AuditModule,
-    AuthModule,
-  ],
+  imports: [DrizzleDbModule, AuditModule, AuthModule],
   providers: [ExportService],
-  controllers: [ExportController]
+  controllers: [ExportController],
 })
 export class ExportModule {}

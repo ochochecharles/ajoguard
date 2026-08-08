@@ -1,0 +1,11 @@
+node_modules
+dist
+.git
+.env
+.env.local
+coverage
+*.log
+drizzle
+comment.txt
+PRODUCTION_READINESS_AUDIT.md
+linkedin-post.md

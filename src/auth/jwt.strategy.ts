@@ -23,7 +23,7 @@ import { JwtPayload } from './auth.service';
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
-    private readonly configService:    ConfigService,
+    private readonly configService: ConfigService,
     private readonly drizzleDbService: DrizzleDbService,
   ) {
     super({
@@ -41,7 +41,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
    * If validation succeeds, the returned object becomes `req.user`.
    */
   async validate(payload: JwtPayload) {
-
     const [collector] = await this.drizzleDbService.db
       .select()
       .from(members)
@@ -59,19 +58,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       );
     }
 
-    if (collector.role !== 'COLLECTOR') {
-      throw new UnauthorizedException(
-        'Access denied. This account does not have collector privileges.',
-      );
-    }
+    // Both collectors and members authenticate. Members are read-only:
+    // write routes carry @Roles('COLLECTOR') which the RolesGuard enforces.
 
     // This object becomes req.user in every protected controller
     return {
       collectorId: collector.id,
-      groupId:     collector.groupId,
-      email:       collector.email,
-      name:        collector.name,
-      role:        collector.role,
+      groupId: collector.groupId,
+      email: collector.email,
+      name: collector.name,
+      role: collector.role,
     };
   }
 }

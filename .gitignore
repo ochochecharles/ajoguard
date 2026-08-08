@@ -44,6 +44,9 @@ lerna-debug.log*
 
 # Misc
 comment.txt
+PRODUCTION_READINESS_AUDIT.md
+linkedin-post.md
+FRONTEND_AGENT_GUIDE.md
 
 # temp directory
 .temp

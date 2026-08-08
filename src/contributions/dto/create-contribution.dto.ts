@@ -9,9 +9,8 @@ import {
 } from 'class-validator';
 
 export enum ContributionChannel {
-  SMS = 'SMS',
-  WHATSAPP = 'WHATSAPP',
   WEB = 'WEB',
+  TELEGRAM = 'TELEGRAM',
 }
 
 export class CreateContributionDto {
@@ -27,6 +26,10 @@ export class CreateContributionDto {
   @IsOptional()
   collectorId: string;
 
+  /**
+   * Contribution amount, in NAIRA (integer).
+   * Converted to kobo (x100) server-side before storage.
+   */
   @IsInt()
   @IsPositive()
   @Min(1) // minimum ₦1

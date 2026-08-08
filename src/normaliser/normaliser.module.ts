@@ -5,10 +5,7 @@ import { DrizzleDbModule } from '../db/drizzle_db/drizzle_db.module';
 import { ContributionsModule } from '../contributions/contributions.module';
 
 @Module({
-  imports: [
-    DrizzleDbModule,
-    ContributionsModule,
-  ],
+  imports: [DrizzleDbModule, ContributionsModule],
   providers: [NormaliserService],
   exports: [NormaliserService],
 })

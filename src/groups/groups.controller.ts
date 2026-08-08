@@ -5,6 +5,7 @@ import {
   Patch,
   Param,
   Body,
+  Query,
   UseGuards,
   Req,
   ForbiddenException,
@@ -12,9 +13,12 @@ import {
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { GroupsService } from './groups.service';
 import { CreateGroupDto } from './dto/create-group.dto';
+import { RecordPayoutDto } from './dto/record-payout.dto';
 import { ReconciliationService } from 'src/reconciliation/reconciliation.service';
 import { AuditService } from 'src/audit/audit.service';
 import { JwtAuthGuard } from 'src/auth/jwt.guard';
+import { RolesGuard, Roles } from 'src/auth/roles.guard';
+import { PaginationDto } from 'src/common/dto/pagination.dto';
 
 @ApiTags('groups')
 @UseGuards(JwtAuthGuard)
@@ -28,6 +32,8 @@ export class GroupsController {
 
   // POST /groups
   @ApiOperation({ summary: 'Create a new savings group' })
+  @UseGuards(RolesGuard)
+  @Roles('COLLECTOR')
   @Post()
   create(@Body() dto: CreateGroupDto) {
     // Convert cycleAmount from Naira to Kobo
@@ -35,14 +41,14 @@ export class GroupsController {
       ...dto,
       cycleAmount: dto.cycleAmount * 100,
     };
-  return this.groupsService.create(normalisedDto);
+    return this.groupsService.create(normalisedDto);
   }
 
   // GET /groups
   @ApiOperation({ summary: 'Get all savings groups' })
   @Get()
-  findAll() {
-    return this.groupsService.findAll();
+  findAll(@Query() pagination: PaginationDto) {
+    return this.groupsService.findAll(pagination.page, pagination.limit);
   }
 
   // GET /groups/:id
@@ -53,8 +59,20 @@ export class GroupsController {
     return this.groupsService.findOne(id);
   }
 
+  // GET /groups/:id/join-code
+  @ApiOperation({
+    summary: 'Get the join code for a group (to invite members)',
+  })
+  @Get(':id/join-code')
+  getJoinCode(@Param('id') id: string, @Req() req: any) {
+    this.assertGroupAccess(id, req.user.groupId);
+    return this.groupsService.getJoinCode(id);
+  }
+
   // PATCH /groups/:id/deactivate
   @ApiOperation({ summary: 'Deactivate a group' })
+  @UseGuards(RolesGuard)
+  @Roles('COLLECTOR')
   @Patch(':id/deactivate')
   deactivate(@Param('id') id: string, @Req() req: any) {
     this.assertGroupAccess(id, req.user.groupId);
@@ -71,11 +89,13 @@ export class GroupsController {
 
   // POST /groups/:id/payout
   @ApiOperation({ summary: 'Record a payout to a group member' })
+  @UseGuards(RolesGuard)
+  @Roles('COLLECTOR')
   @Post(':id/payout')
   recordPayout(
     @Param('id') id: string,
-    @Body() body: { recipientId: string; recordedById: string },
-     @Req() req: any,
+    @Body() body: RecordPayoutDto,
+    @Req() req: any,
   ) {
     this.assertGroupAccess(id, req.user.groupId);
     return this.reconciliationService.recordPayout(
@@ -88,9 +108,17 @@ export class GroupsController {
   // View full audit history for a group
   @ApiOperation({ summary: 'Get the full audit history for a group' })
   @Get(':id/audit')
-  getAuditHistory(@Param('id') id: string , @Req() req: any) {
+  getAuditHistory(
+    @Param('id') id: string,
+    @Query() pagination: PaginationDto,
+    @Req() req: any,
+  ) {
     this.assertGroupAccess(id, req.user.groupId);
-    return this.auditService.getAuditHistory(id);
+    return this.auditService.getAuditHistory(
+      id,
+      pagination.page,
+      pagination.limit,
+    );
   }
 
   // GET /groups/:id/audit/verify
@@ -110,9 +138,7 @@ export class GroupsController {
     collectorGroupId: string,
   ): void {
     if (requestedGroupId !== collectorGroupId) {
-      throw new ForbiddenException(
-        'You can only access your own group',
-      );
+      throw new ForbiddenException('You can only access your own group');
     }
   }
 }

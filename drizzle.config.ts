@@ -14,7 +14,12 @@ export default {
   dialect: 'postgresql',
   dbCredentials: {
     url: process.env.DATABASE_URL,
-    ssl: true,
+    // Allow toggling SSL via DATABASE_SSL env var (defaults to true)
+    ssl: (() => {
+      const val = process.env.DATABASE_SSL;
+      if (val === undefined) return true;
+      return ['true', '1', 'yes'].includes(val.toLowerCase());
+    })(),
   },
   // Log what Drizzle Kit is doing
   verbose: true,

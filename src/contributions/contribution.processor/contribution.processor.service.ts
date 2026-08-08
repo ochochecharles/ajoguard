@@ -31,9 +31,15 @@ export class ContributionProcessorService extends WorkerHost {
     try {
       await job.updateProgress(10);
 
+      // Mark as processed BEFORE reconciliation so the just-recorded
+      // contribution is counted. Otherwise it would still be PENDING and
+      // the group would falsely be flagged as having a DISCREPANCY.
+      await this.contributionsService.updateStatus(event.eventId, 'PROCESSED');
+      await job.updateProgress(25);
+
       // Reconciliation
-      const reconciliationResult = await this.reconciliationService
-        .reconcileGroup(event.groupId);
+      const reconciliationResult =
+        await this.reconciliationService.reconcileGroup(event.groupId);
 
       this.logger.log(
         `[Reconciliation] Group ${event.groupId} status: ${reconciliationResult?.status}`,
@@ -64,12 +70,9 @@ export class ContributionProcessorService extends WorkerHost {
 
       await job.updateProgress(90);
 
-      // Mark as processed
-      await this.contributionsService.updateStatus(event.eventId, 'PROCESSED');
       await job.updateProgress(100);
 
       this.logger.log(`✅ Job ${job.id} completed successfully`);
-
     } catch (error) {
       await this.contributionsService.updateStatus(
         event.eventId,
@@ -77,9 +80,7 @@ export class ContributionProcessorService extends WorkerHost {
         (error as Error).message,
       );
 
-      this.logger.error(
-        `❌ Job ${job.id} failed: ${(error as Error).message}`,
-      );
+      this.logger.error(`❌ Job ${job.id} failed: ${(error as Error).message}`);
 
       throw error;
     }

@@ -8,7 +8,7 @@ import {
   reconciliationLogs,
   payouts,
 } from '../db/schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, gte } from 'drizzle-orm';
 
 @Injectable()
 export class ReconciliationService {
@@ -23,7 +23,6 @@ export class ReconciliationService {
     totalExpected: number;
     totalCollected: number;
   } | null> {
-
     this.logger.log(`Running reconciliation for group ${groupId}`);
 
     const [group] = await this.drizzleDbService.db
@@ -36,7 +35,10 @@ export class ReconciliationService {
       return null;
     }
 
-    const cycleIdentifier = this.buildCycleIdentifier(group.cycleInterval);
+    const cycleIdentifier = this.buildCycleIdentifier(
+      group.cycleInterval,
+      group.createdAt,
+    );
 
     const activeMembers = await this.drizzleDbService.db
       .select()
@@ -70,16 +72,14 @@ export class ReconciliationService {
       0,
     );
 
-    const paidMemberIds = new Set(
-      cycleContributions.map((c) => c.memberId),
-    );
+    const paidMemberIds = new Set(cycleContributions.map((c) => c.memberId));
 
     const missingMembers = activeMembers
       .filter((m) => !paidMemberIds.has(m.id))
       .map((m) => ({
-        memberId:      m.id,
-        memberName:    m.name,
-        phoneNumber:   m.phoneNumber,
+        memberId: m.id,
+        memberName: m.name,
+        phoneNumber: m.phoneNumber,
         amountMissing: group.cycleAmount,
       }));
 
@@ -102,14 +102,14 @@ export class ReconciliationService {
     if (status === 'HEALTHY') {
       this.logger.log(
         `✅ Group ${group.name} is HEALTHY. ` +
-        `Collected ₦${totalCollected / 100} of ₦${totalExpected / 100} expected.`,
+          `Collected ₦${totalCollected / 100} of ₦${totalExpected / 100} expected.`,
       );
     } else {
       this.logger.warn(
         `⚠️ Group ${group.name} has DISCREPANCY. ` +
-        `Collected ₦${totalCollected / 100} of ₦${totalExpected / 100}. ` +
-        `${missingMembers.length} member(s) have not paid: ` +
-        `${missingMembers.map((m) => m.memberName).join(', ')}`,
+          `Collected ₦${totalCollected / 100} of ₦${totalExpected / 100}. ` +
+          `${missingMembers.length} member(s) have not paid: ` +
+          `${missingMembers.map((m) => m.memberName).join(', ')}`,
       );
     }
 
@@ -122,7 +122,7 @@ export class ReconciliationService {
     };
   }
 
-  // Nightly scheduler 
+  // Nightly scheduler
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async runNightlyReconciliation(): Promise<void> {
     this.logger.log('Running nightly reconciliation for all active groups');
@@ -141,74 +141,102 @@ export class ReconciliationService {
     this.logger.log('Nightly reconciliation complete');
   }
 
-  // Record a payout 
+  // Record a payout
   async recordPayout(
     groupId: string,
     recipientId: string,
     recordedById: string,
   ): Promise<object> {
+    return this.drizzleDbService.db.transaction(async (tx) => {
+      const [group] = await tx
+        .select()
+        .from(groups)
+        .where(eq(groups.id, groupId));
 
-    const [group] = await this.drizzleDbService.db
-      .select()
-      .from(groups)
-      .where(eq(groups.id, groupId));
+      if (!group) {
+        throw new Error(`Group ${groupId} not found`);
+      }
 
-    if (!group) {
-      throw new Error(`Group ${groupId} not found`);
-    }
-
-    const cycleIdentifier = this.buildCycleIdentifier(group.cycleInterval);
-
-    const cycleContributions = await this.drizzleDbService.db
-      .select()
-      .from(contributions)
-      .where(
-        and(
-          eq(contributions.groupId, groupId),
-          eq(contributions.status, 'PROCESSED'),
-        ),
+      const cycleIdentifier = this.buildCycleIdentifier(
+        group.cycleInterval,
+        group.createdAt,
+      );
+      const cycleStart = this.cycleStartDate(
+        group.cycleInterval,
+        group.createdAt,
       );
 
-    const payoutAmount = cycleContributions.reduce(
-      (sum, c) => sum + c.amount,
-      0,
-    );
+      // Only sum contributions received within the current cycle so the
+      // payout amount does not accumulate across every cycle ever.
+      const cycleContributions = await tx
+        .select()
+        .from(contributions)
+        .where(
+          and(
+            eq(contributions.groupId, groupId),
+            eq(contributions.status, 'PROCESSED'),
+            gte(contributions.receivedAt, cycleStart),
+          ),
+        );
 
-    const [savedPayout] = await this.drizzleDbService.db
-      .insert(payouts)
-      .values({
-        groupId,
-        recipientId,
-        recordedById,
-        amount:          payoutAmount,
-        cycleIdentifier,
-        payoutDate:      new Date(),
-      })
-      .returning();
+      // The pot equals what was collected this cycle, offset by anything
+      // already paid out for the current cycle to other recipients.
+      const cyclePayouts = await tx
+        .select({ amount: payouts.amount })
+        .from(payouts)
+        .where(
+          and(
+            eq(payouts.groupId, groupId),
+            eq(payouts.cycleIdentifier, cycleIdentifier),
+          ),
+        );
 
-    await this.drizzleDbService.db
-      .update(groups)
-      .set({ currentPosition: group.currentPosition + 1 })
-      .where(eq(groups.id, groupId));
+      const collectedThisCycle = cycleContributions.reduce(
+        (sum, c) => sum + c.amount,
+        0,
+      );
+      const alreadyPaidThisCycle = cyclePayouts.reduce(
+        (sum, p) => sum + p.amount,
+        0,
+      );
 
-    this.logger.log(
-      `Payout of ₦${payoutAmount / 100} recorded for member ${recipientId}`,
-    );
+      const payoutAmount = collectedThisCycle - alreadyPaidThisCycle;
 
-    return {
-      message:         'Payout recorded successfully',
-      payoutId:        savedPayout.id,
-      amount:          savedPayout.amount,
-      amountInNaira:   savedPayout.amount / 100,
-      cycleIdentifier: savedPayout.cycleIdentifier,
-      payoutDate:      savedPayout.payoutDate,
-      nextPosition:    group.currentPosition + 1,
-    };
+      const [savedPayout] = await tx
+        .insert(payouts)
+        .values({
+          groupId,
+          recipientId,
+          recordedById,
+          amount: payoutAmount,
+          cycleIdentifier,
+          payoutDate: new Date(),
+        })
+        .returning();
+
+      await tx
+        .update(groups)
+        .set({ currentPosition: group.currentPosition + 1 })
+        .where(eq(groups.id, groupId));
+
+      this.logger.log(
+        `Payout of ₦${payoutAmount / 100} recorded for member ${recipientId}`,
+      );
+
+      return {
+        message: 'Payout recorded successfully',
+        payoutId: savedPayout.id,
+        amount: savedPayout.amount / 100,
+        amountInKobo: savedPayout.amount,
+        cycleIdentifier: savedPayout.cycleIdentifier,
+        payoutDate: savedPayout.payoutDate,
+        nextPosition: group.currentPosition + 1,
+      };
+    });
   }
 
   // Get group summary
   async getGroupSummary(groupId: string) {
-
     const [group] = await this.drizzleDbService.db
       .select()
       .from(groups)
@@ -219,12 +247,7 @@ export class ReconciliationService {
     const activeMembers = await this.drizzleDbService.db
       .select()
       .from(members)
-      .where(
-        and(
-          eq(members.groupId, groupId),
-          eq(members.status, 'ACTIVE'),
-        ),
-      );
+      .where(and(eq(members.groupId, groupId), eq(members.status, 'ACTIVE')));
 
     const allContributions = await this.drizzleDbService.db
       .select()
@@ -242,80 +265,119 @@ export class ReconciliationService {
       .where(eq(payouts.groupId, groupId));
 
     const totalCollectedEver = allContributions.reduce(
-      (sum, c) => sum + c.amount, 0,
+      (sum, c) => sum + c.amount,
+      0,
     );
 
-    const totalPaidOut = allPayouts.reduce(
-      (sum, p) => sum + p.amount, 0,
-    );
+    const totalPaidOut = allPayouts.reduce((sum, p) => sum + p.amount, 0);
 
     return {
-      groupName:                  group.name,
-      cycleInterval:              group.cycleInterval,
-      cycleAmount:                group.cycleAmount,
-      cycleAmountInNaira:         group.cycleAmount / 100,
-      totalMembers:               activeMembers.length,
-      currentPosition:            group.currentPosition,
-      totalCollectedEver,
-      totalCollectedEverInNaira:  totalCollectedEver / 100,
-      totalPaidOut,
-      totalPaidOutInNaira:        totalPaidOut / 100,
-      balance:                    totalCollectedEver - totalPaidOut,
-      balanceInNaira:             (totalCollectedEver - totalPaidOut) / 100,
+      groupName: group.name,
+      cycleInterval: group.cycleInterval,
+      cycleAmount: group.cycleAmount / 100,
+      cycleAmountInKobo: group.cycleAmount,
+      totalMembers: activeMembers.length,
+      currentPosition: group.currentPosition,
+      totalCollectedEver: totalCollectedEver / 100,
+      totalCollectedEverInKobo: totalCollectedEver,
+      totalPaidOut: totalPaidOut / 100,
+      totalPaidOutInKobo: totalPaidOut,
+      balance: (totalCollectedEver - totalPaidOut) / 100,
+      balanceInKobo: totalCollectedEver - totalPaidOut,
       members: activeMembers.map((m) => ({
-        id:                    m.id,
-        name:                  m.name,
-        role:                  m.role,
-        payoutOrder:           m.payoutOrder,
-        contributionCount:     allContributions.filter((c) => c.memberId === m.id).length,
-        totalContributed:      allContributions.filter((c) => c.memberId === m.id).reduce((sum, c) => sum + c.amount, 0),
-        totalContributedInNaira: allContributions.filter((c) => c.memberId === m.id).reduce((sum, c) => sum + c.amount, 0) / 100,
-        hasReceivedPayout:     allPayouts.some((p) => p.recipientId === m.id),
+        id: m.id,
+        name: m.name,
+        role: m.role,
+        payoutOrder: m.payoutOrder,
+        contributionCount: allContributions.filter((c) => c.memberId === m.id)
+          .length,
+        totalContributed:
+          allContributions
+            .filter((c) => c.memberId === m.id)
+            .reduce((sum, c) => sum + c.amount, 0) / 100,
+        totalContributedInKobo: allContributions
+          .filter((c) => c.memberId === m.id)
+          .reduce((sum, c) => sum + c.amount, 0),
+        hasReceivedPayout: allPayouts.some((p) => p.recipientId === m.id),
       })),
     };
   }
 
-  // Helper: Build cycle identifier
-  private buildCycleIdentifier(cycleInterval: string): string {
-    const now = new Date();
-    const year = now.getFullYear();
+  // Helper: Build cycle identifier for the cycle containing `anchor`
+  private buildCycleIdentifier(
+    cycleInterval: string,
+    anchor: Date = new Date(),
+  ): string {
+    const start = this.cycleStartDate(cycleInterval, anchor);
+    const year = start.getUTCFullYear();
 
     if (cycleInterval === 'weekly') {
-      const startOfYear = new Date(year, 0, 1);
+      // ISO 8601 week number computed in UTC.
+      const startOfYear = new Date(Date.UTC(year, 0, 1));
       const weekNumber = Math.ceil(
-        ((now.getTime() - startOfYear.getTime()) / 86400000 +
-          startOfYear.getDay() + 1) / 7,
+        ((start.getTime() - startOfYear.getTime()) / 86400000 +
+          startOfYear.getUTCDay() +
+          1) /
+          7,
       );
       return `${year}-W${String(weekNumber).padStart(2, '0')}`;
     }
 
-    if (cycleInterval === 'monthly') {
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      return `${year}-${month}`;
+    const month = String(start.getUTCMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
+  }
+
+  // Helper: Start timestamp of the cycle that contains `now`,
+  // anchored to when the group was created so cycles line up.
+  // All math is done in UTC so cycle boundaries never shift by host TZ.
+  private cycleStartDate(
+    cycleInterval: string,
+    anchor: Date = new Date(),
+  ): Date {
+    const now = new Date();
+
+    if (cycleInterval === 'weekly') {
+      const dayMs = 24 * 60 * 60 * 1000;
+      const cyclesElapsed = Math.floor(
+        (now.getTime() - anchor.getTime()) / (7 * dayMs),
+      );
+      return new Date(anchor.getTime() + cyclesElapsed * 7 * dayMs);
     }
 
-    return `${year}-${now.getMonth() + 1}`;
+    // monthly: same UTC day-of-month the group was created, in the current cycle
+    const monthsElapsed =
+      (now.getUTCFullYear() - anchor.getUTCFullYear()) * 12 +
+      (now.getUTCMonth() - anchor.getUTCMonth());
+    return new Date(
+      Date.UTC(
+        anchor.getUTCFullYear(),
+        anchor.getUTCMonth() + monthsElapsed,
+        anchor.getUTCDate(),
+        anchor.getUTCHours(),
+        anchor.getUTCMinutes(),
+        anchor.getUTCSeconds(),
+        anchor.getUTCMilliseconds(),
+      ),
+    );
   }
 
   // Helper: Save reconciliation log
   private async saveReconciliationLog(data: {
-    groupId:          string;
-    cycleIdentifier:  string;
-    totalExpected:    number;
-    totalCollected:   number;
-    missingMembers:   any[];
-    status:           'HEALTHY' | 'DISCREPANCY';
+    groupId: string;
+    cycleIdentifier: string;
+    totalExpected: number;
+    totalCollected: number;
+    missingMembers: any[];
+    status: 'HEALTHY' | 'DISCREPANCY';
   }): Promise<void> {
-    await this.drizzleDbService.db
-      .insert(reconciliationLogs)
-      .values({
-        groupId:         data.groupId,
-        cycleIdentifier: data.cycleIdentifier,
-        totalExpected:   data.totalExpected,
-        totalCollected:  data.totalCollected,
-        missingMembers:  data.missingMembers,
-        status:          data.status,
-        checkedAt:       new Date(),
-      });
+    await this.drizzleDbService.db.insert(reconciliationLogs).values({
+      groupId: data.groupId,
+      cycleIdentifier: data.cycleIdentifier,
+      totalExpected: data.totalExpected,
+      totalCollected: data.totalCollected,
+      missingMembers: data.missingMembers,
+      status: data.status,
+      checkedAt: new Date(),
+    });
   }
 }

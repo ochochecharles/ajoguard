@@ -2,7 +2,7 @@
 
 > A tamper-evident backend reconciliation engine for informal savings groups (Ajo/Esusu)
 
-AjoGuard is a pure backend system that brings trust, transparency, and verifiable record-keeping to the informal rotating savings and credit associations (ROSCAs) that millions of Nigerians depend on daily. It works entirely through SMS, WhatsApp, and web form inputs — no smartphone app required for end users.
+AjoGuard is a pure backend system that brings trust, transparency, and verifiable record-keeping to the informal rotating savings and credit associations (ROSCAs) that millions of Nigerians depend on daily. It works through web form inputs and a Telegram bot — no smartphone app required for end users.
 
 ---
 
@@ -28,13 +28,13 @@ AjoGuard solves these problems by acting as an **invisible trust layer** — the
 ```
 Collector collects cash from members (same as always)
          ↓
-Collector logs the contribution via SMS, WhatsApp, or web form
+Collector logs the contribution via web form or the Telegram bot
          ↓
 AjoGuard validates, deduplicates, and saves the record
          ↓
 Background worker runs reconciliation, writes audit log, sends notifications
          ↓
-Members receive SMS confirmation of their payment
+Members receive Telegram confirmation of their payment
          ↓
 Weekly summaries sent to all members automatically
          ↓
@@ -52,9 +52,9 @@ Verifiable export reports available for disputes or loan applications
 INPUT                   PROCESSING              STORAGE
 ─────                   ──────────              ───────
 
-Web form   ─┐                                   PostgreSQL
-SMS        ─┼─→ Normaliser ─→ Save ─→ Queue ─→ (Neon)
-WhatsApp   ─┘    (validates)         (BullMQ)
+Web form   ─┐
+Telegram   ─┼─→ Normaliser ─→ Save ─→ Queue ─→ PostgreSQL
+            │    (validates)         (BullMQ)  (Neon)
                                          │
                                          ↓
                                       Worker
@@ -73,9 +73,9 @@ WhatsApp   ─┘    (validates)         (BullMQ)
 
 ### Key Design Decisions
 
-**Channel-agnostic ingestion** — SMS, WhatsApp, and web form inputs all pass through the same normaliser. The reconciliation engine never knows or cares which channel a contribution came from.
+**Channel-agnostic ingestion** — web form and Telegram inputs all pass through the same normaliser. The reconciliation engine never knows or cares which channel a contribution came from.
 
-**Queue-based processing** — contributions are saved and acknowledged immediately. Reconciliation, audit logging, and notifications happen asynchronously in the background via BullMQ. This keeps response times fast even under poor Nigerian network conditions.
+**Queue-based processing** — contributions are saved and acknowledged immediately. Reconciliation, audit logging, and notifications happen asynchronously in the background via BullMQ. This keeps response times fast even under poor network conditions.
 
 **Tamper-evident audit log** — every contribution is recorded as a hash-chained, HMAC-signed entry. Modifying, deleting, or reordering any record breaks the chain and is detected immediately by the verification scanner.
 
@@ -89,13 +89,15 @@ WhatsApp   ─┘    (validates)         (BullMQ)
 |---|---|
 | **NestJS** | Backend framework |
 | **PostgreSQL** (Docker) | Primary database |
+| **Supabase** | Dedicated Postgres VM per project |
 | **Drizzle ORM** | Database queries and migrations |
 | **Redis** (Docker) | Queue storage |
 | **BullMQ** | Background job processing |
-| **Africa's Talking** | SMS sending and receiving |
-| **Meta Cloud API** | WhatsApp webhook integration |
+| **Telegram Bot API** | Telegram bot ingestion and notifications |
+| **Google OAuth** | Collector & member authentication |
 | **PDFKit** | PDF report generation |
 | **@nestjs/schedule** | Nightly reconciliation and weekly summaries |
+| **Helmet** | Security headers |
 | **Swagger** | API documentation |
 | **Bull Board** | Queue monitoring dashboard |
 
@@ -105,35 +107,36 @@ WhatsApp   ─┘    (validates)         (BullMQ)
 
 ### Core
 - ✅ Multi-tenant — thousands of independent groups on one system
-- ✅ Three input channels — web form, SMS, WhatsApp
+- ✅ Two input channels — web form, Telegram
 - ✅ Channel-agnostic normaliser — one validation pipeline for all inputs
-- ✅ Idempotent contribution ingestion — duplicate detection via SHA256
+- ✅ Idempotent contribution ingestion — duplicate detection via SHA-256
 - ✅ Background job processing with automatic retries and dead-letter queue
 
 ### Reconciliation
 - ✅ Per-contribution reconciliation after every payment
 - ✅ Nightly scheduled reconciliation across all active groups
 - ✅ Missing payment detection and flagging
-- ✅ Group balance calculation
-- ✅ Payout rotation tracking
+- ✅ Cycle-based balance and payout rotation tracking
 
 ### Audit Trail
-- ✅ Hash-chained audit log entries (SHA256)
+- ✅ Hash-chained audit log entries (SHA-256)
 - ✅ HMAC signatures on every entry (server authenticity proof)
 - ✅ Append-only records — database user has no UPDATE/DELETE on audit_logs
 - ✅ Verification scanner — detects broken chains, hash mismatches, invalid signatures
 
 ### Notifications
-- ✅ Payment confirmation SMS to member after every contribution
+- ✅ Payment confirmation Telegram message to member after every contribution
 - ✅ Missing payment alerts to collector and late members
 - ✅ Weekly group summary to all members
 - ✅ Notification log with delivery tracking
 
-### Export
+### Export & Observability
 - ✅ Full group report — JSON, PDF, CSV
 - ✅ Individual member contribution history — JSON, PDF, CSV
 - ✅ Audit integrity proof embedded in every report
 - ✅ Loan-ready financial history reports
+- ✅ Health/readiness endpoints for load balancers
+- ✅ CSV-injection-proof exports and structured request logging
 
 ---
 
@@ -142,8 +145,8 @@ WhatsApp   ─┘    (validates)         (BullMQ)
 ### Prerequisites
 
 - Node.js v20+
-- Docker Desktop (for Redis)
-- PostgreSQL database
+- Docker Desktop (for optional local Redis)
+- A PostgreSQL / Neon database
 
 ### Installation
 
@@ -171,6 +174,15 @@ npx drizzle-kit migrate
 npm run start:dev
 ```
 
+### Running with PostgreSQL locally (bare metal)
+
+If you don't have an existing database, start one:
+
+```bash
+docker run -d --name postgres-db -p 5432:5432 -e POSTGRES_PASSWORD=password -e POSTGRES_DB=ajoguard -e POSTGRES_USER=postgres postgres:16-alpine
+# Then set DATABASE_URL=postgresql://postgres:password@localhost:5432/ajoguard
+```
+
 ---
 
 ## Environment Variables
@@ -180,6 +192,10 @@ Create a `.env` file in the root of the project with the following variables:
 ```env
 # Database
 DATABASE_URL=postgresql://username:password@host:5432/ajoguard
+# When true/1, forces SSL for the database connection (default true in production)
+DATABASE_SSL=1
+DATABASE_SSL_REJECT_UNAUTHORIZED=1
+# If a Neon/Neon-compatible pooled connection string, leave as-is; otherwise add ?sslmode=require
 
 # Redis
 REDIS_HOST=localhost
@@ -188,23 +204,28 @@ REDIS_PORT=6379
 # App
 PORT=3000
 NODE_ENV=development
+# Comma-separated list of allowed CORS origins (defaults to localhost dev origins)
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 
 # Audit log signing key
 # Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 AUDIT_HMAC_SECRET=your_long_random_secret_here
 
-# Africa's Talking (SMS)
-AT_API_KEY=your_api_key
-AT_USERNAME=your_username
-AT_SENDER_ID=your_shortcode
+# Telegram
+# Create a bot via @BotFather to get a token.
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+# Public URL of this app that Telegram calls, e.g. https://api.yourdomain.com/ingest/telegram/webhook
+TELEGRAM_WEBHOOK_URL=
+# Optional secret echoed back in the x-telegram-bot-api-secret-token header
+TELEGRAM_WEBHOOK_SECRET=
 
-# Meta WhatsApp (Cloud API)
-META_WHATSAPP_TOKEN=your_access_token
-META_PHONE_NUMBER_ID=your_phone_number_id
-META_VERIFY_TOKEN=your_webhook_verify_token
+# Google OAuth
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+GOOGLE_CALLBACK_URL=http://localhost:3000/auth/google/callback
 ```
 
-> Never commit your `.env` file. It is listed in `.gitignore`.
+> Never commit your `.env` file. It is git-ignored.
 
 ---
 
@@ -214,16 +235,25 @@ META_VERIFY_TOKEN=your_webhook_verify_token
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/auth/register` | Create a new collector account and savings group |
-| `POST` | `/auth/request-otp` | Send a 6-digit login code to the collector email address |
-| `POST` | `/auth/verify-otp` | Verify the 6-digit code and receive a JWT access token |
+| `GET` | `/auth/google` | Start Google OAuth (login / register / join via query params) |
+| `GET` | `/auth/google/callback` | Google OAuth callback — returns the AjoGuard JWT |
+| `POST` | `/auth/google/login` | Exchange a Google ID token (SPA/mobile) for a JWT |
+| `POST` | `/auth/google/register` | Register a collector + group (or join via `joinCode`) with a Google ID token |
+| `POST` | `/auth/refresh` | Refresh an expiring JWT |
+
+### Health
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/health` | Liveness probe — returns process status and uptime |
+| `GET` | `/health/ready` | Readiness probe — verifies database connectivity (503 if down) |
 
 ### Groups
 
 | Method | Endpoint | Description |
 |---|---|---|
 | `POST` | `/groups` | Create a new savings group |
-| `GET` | `/groups` | Get all groups |
+| `GET` | `/groups` | Get all groups (paginated) |
 | `GET` | `/groups/:id` | Get a single group |
 | `GET` | `/groups/:id/summary` | Get group financial summary |
 | `GET` | `/groups/:id/audit` | View audit log history |
@@ -252,10 +282,9 @@ META_VERIFY_TOKEN=your_webhook_verify_token
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/ingest/web` | Record contribution via web form |
-| `POST` | `/ingest/sms` | Africa's Talking SMS webhook |
-| `GET` | `/ingest/whatsapp` | Meta webhook verification |
-| `POST` | `/ingest/whatsapp` | Meta WhatsApp webhook |
+| `POST` | `/ingest/web` | Record contribution via web form (collector only) |
+| `POST` | `/ingest/telegram/webhook` | Telegram bot webhook |
+| `POST` | `/ingest/telegram/set-webhook` | Point the bot at this app's public URL (collector only) |
 
 ### Export
 
@@ -269,11 +298,13 @@ META_VERIFY_TOKEN=your_webhook_verify_token
 | `GET` | `/export/member/:memberId/csv` | Download member report as CSV |
 
 Full interactive API documentation is available at:
+
 ```
 http://localhost:3000/api
 ```
 
 Queue monitoring dashboard:
+
 ```
 http://localhost:3000/admin/queues
 ```
@@ -284,118 +315,37 @@ http://localhost:3000/admin/queues
 
 ```
 ajoguard
-├─ .prettierrc
-├─ drizzle
-│  ├─ 0000_steep_korath.sql
-│  ├─ 0001_mushy_blackheart.sql
-│  ├─ 0002_mysterious_scourge.sql
-│  └─ meta
-│     ├─ 0000_snapshot.json
-│     ├─ 0001_snapshot.json
-│     ├─ 0002_snapshot.json
-│     └─ _journal.json
-├─ drizzle.config.ts
-├─ eslint.config.mjs
-├─ LICENSE
-├─ nest-cli.json
-├─ package-lock.json
-├─ package.json
-├─ README.md
 ├─ src
-│  ├─ app.controller.spec.ts
-│  ├─ app.controller.ts
-│  ├─ app.module.ts
-│  ├─ app.service.ts
-│  ├─ audit
-│  │  ├─ audit.module.ts
-│  │  ├─ audit.service.spec.ts
-│  │  └─ audit.service.ts
-│  ├─ auth
-│  │  ├─ auth.controller.spec.ts
-│  │  ├─ auth.controller.ts
-│  │  ├─ auth.module.ts
-│  │  ├─ auth.service.spec.ts
-│  │  ├─ auth.service.ts
-│  │  ├─ email.service.ts
-│  │  ├─ jwt.guard.ts
-│  │  ├─ jwt.strategy.ts
-│  │  └─ otp.store.ts
-│  ├─ bull-board.setup.ts
-│  ├─ contributions
-│  │  ├─ contribution.processor
-│  │  │  ├─ contribution.processor.service.spec.ts
-│  │  │  └─ contribution.processor.service.ts
-│  │  ├─ contributions.controller.spec.ts
-│  │  ├─ contributions.controller.ts
-│  │  ├─ contributions.module.ts
-│  │  ├─ contributions.service.spec.ts
-│  │  ├─ contributions.service.ts
-│  │  ├─ dto
-│  │  │  └─ create-contribution.dto.ts
-│  │  └─ interfaces
-│  │     └─ contribution-event.interface.ts
-│  ├─ db
-│  │  ├─ drizzle_db
-│  │  │  ├─ drizzle_db.module.ts
-│  │  │  ├─ drizzle_db.service.spec.ts
-│  │  │  └─ drizzle_db.service.ts
-│  │  └─ schema.ts
-│  ├─ export
-│  │  ├─ export.controller.spec.ts
-│  │  ├─ export.controller.ts
-│  │  ├─ export.module.ts
-│  │  ├─ export.service.spec.ts
-│  │  └─ export.service.ts
-│  ├─ groups
-│  │  ├─ dto
-│  │  │  └─ create-group.dto.ts
-│  │  ├─ groups.controller.spec.ts
-│  │  ├─ groups.controller.ts
-│  │  ├─ groups.module.ts
-│  │  ├─ groups.service.spec.ts
-│  │  └─ groups.service.ts
-│  ├─ ingest
-│  │  ├─ ingest.controller.spec.ts
-│  │  ├─ ingest.controller.ts
-│  │  ├─ ingest.module.ts
-│  │  ├─ sms.parser
-│  │  │  ├─ sms.parser.service.spec.ts
-│  │  │  └─ sms.parser.service.ts
-│  │  ├─ whatsapp-reply
-│  │  │  ├─ whatsapp-reply.service.spec.ts
-│  │  │  └─ whatsapp-reply.service.ts
-│  │  └─ whatsapp.parser
-│  │     ├─ whatsapp.parser.service.spec.ts
-│  │     └─ whatsapp.parser.service.ts
-│  ├─ main.ts
-│  ├─ members
-│  │  ├─ dto
-│  │  │  └─ create-member.dto.ts
-│  │  ├─ members.controller.spec.ts
-│  │  ├─ members.controller.ts
-│  │  ├─ members.module.ts
-│  │  ├─ members.service.spec.ts
-│  │  └─ members.service.ts
-│  ├─ normaliser
-│  │  ├─ normaliser.module.ts
-│  │  ├─ normaliser.service.spec.ts
-│  │  └─ normaliser.service.ts
-│  ├─ notification
-│  │  ├─ notification.module.ts
-│  │  ├─ notification.service.spec.ts
-│  │  └─ notification.service.ts
-│  ├─ reconciliation
-│  │  ├─ reconciliation.module.ts
-│  │  ├─ reconciliation.service.spec.ts
-│  │  └─ reconciliation.service.ts
-│  └─ utils
-│     └─ phone.util.ts
-├─ test
-│  ├─ app.e2e-spec.ts
-│  └─ jest-e2e.json
-├─ tsconfig.build.json
+│  ├─ main.ts                     # Bootstrap: Helmet, CORS, validation, Swagger
+│  ├─ app.module.ts               # Root module wiring
+│  ├─ common/                     # Shared infrastructure
+│  │  ├─ all-exceptions.filter.ts      # Uniform JSON error envelope + requestId
+│  │  ├─ request-logger.middleware.ts  # Structured request logging
+│  │  └─ dto/pagination.dto.ts
+│  ├─ config/env.validation.ts    # Fail-fast env validation
+│  ├─ db/
+│  │  ├─ schema.ts                # Drizzle schema
+│  │  └─ drizzle_db.service.ts    # Postgres pool + Drizzle client
+│  ├─ auth/                       # Google OAuth, JWT, RBAC guards
+│  ├─ groups/                     # Group CRUD, join codes, payouts
+│  ├─ members/                    # Member CRUD
+│  ├─ contributions/              # Queries + BullMQ processor
+│  ├─ ingest/                     # Channel adapters (web, Telegram)
+│  ├─ normaliser/                 # Validation/dedupe pipeline
+│  ├─ reconciliation/             # Health checks & cycle accounting
+│  ├─ audit/                      # Tamper-evident audit chain
+│  ├─ notification/               # Telegram/email notifications
+│  ├─ export/                     # JSON/PDF/CSV reports
+│  ├─ health/                     # Liveness/readiness probes
+│  └─ utils/                      # Shared helpers (e.g. phone)
+├─ drizzle/                       # Migrations + snapshots
+├─ test/                          # e2e tests
+├─ drizzle.config.ts
+├─ Dockerfile                     # Multi-stage production image
+├─ Procfile                       # Heroku/Railway web process
+├─ vercel.json
+├─ package.json
 └─ tsconfig.json
-
 ```
 
 ---
@@ -405,10 +355,11 @@ ajoguard
 Every contribution that passes through the normaliser gets a tamper-evident audit log entry written by the background processor.
 
 Each entry contains:
-- **prevHash** — the SHA256 hash of the previous entry, linking entries into a chain
+
+- **prevHash** — the SHA-256 hash of the previous entry, linking entries into a chain
 - **entryData** — a frozen snapshot of the contribution at processing time
-- **entryHash** — SHA256(prevHash + entryData), proving integrity
-- **hmacSig** — HMAC-SHA256(entryHash, serverSecret), proving server authenticity
+- **entryHash** — SHA-256(prevHash + entryData), proving integrity
+- **hmacSig** — HMAC-SHA-256(entryHash, serverSecret), proving server authenticity
 
 **What this protects against:**
 
@@ -420,11 +371,13 @@ Each entry contains:
 | Reordering records | prevHash chain breaks immediately |
 
 Verify the audit chain for any group at any time:
+
 ```
 GET /groups/:id/audit/verify
 ```
 
 Response when chain is intact:
+
 ```json
 {
   "valid": true,
@@ -439,11 +392,12 @@ Response when chain is intact:
 
 Reconciliation runs in two modes:
 
-**Per-contribution** — triggered automatically after every payment is processed by the queue worker. Checks whether the group's current state is healthy.
+**Per-contribution** — triggered automatically after every contribution is processed by the queue worker. Checks whether the group's current cycle is fully paid.
 
 **Nightly** — runs at midnight every day across all active groups. Flags any members who have not paid in the current cycle and triggers alerts.
 
 A reconciliation result looks like:
+
 ```json
 {
   "status": "DISCREPANCY",
@@ -459,58 +413,79 @@ A reconciliation result looks like:
 }
 ```
 
-When a discrepancy is found, the notification worker automatically sends:
+When a discrepancy is found, the worker automatically sends:
+
 - An alert to the collector listing missing members
 - A reminder directly to each missing member
 
 ---
 
-## SMS Format
+## Telegram Format
 
-Collectors send SMS contributions in this format:
+Collectors send contributions to the bot in this format:
 
 ```
 PAY <memberPhoneNumber> <amountInNaira>
 ```
 
 Example:
+
 ```
 PAY 08012345678 5000
 ```
 
-This records a ₦5,000 contribution from the member whose phone number is `08012345678`. The system identifies the group automatically from the collector's registered phone number.
+This records a ₦5,000 contribution from the member whose phone number is `08012345678`, identified from the linked collector's group. First, link your Telegram account as a collector:
+
+```
+/link <yourPhoneNumber>
+```
 
 ---
 
-## Export Reports
+## Audit Integrity in Exports
 
 AjoGuard generates three types of downloadable reports:
 
-**Group Report** — complete financial history of a savings group including all members, contributions, payouts, reconciliation history, and audit chain verification. Useful for dispute resolution and regulatory compliance.
+**Group Report** — complete financial history of a savings group including all members, contributions, payouts, and audit chain verification. Useful for dispute resolution and regulatory compliance.
 
-**Member Report** — individual contribution history for a single member including total contributed, cycles completed, payout history, and financial consistency metrics. Specifically designed for microfinance loan applications.
+**Member Report** — individual contribution history for a single member including total contributed, cycles completed, and financial consistency metrics. Specifically designed for microfinance loan applications.
 
 Both reports embed an **audit integrity proof** that mathematically verifies no records were modified since they were written.
 
 ---
 
-## Running in Production
+## Deployment
+
+### Docker
 
 ```bash
-# Build
-npm run build
-
-# Start production server
-npm run start:prod
+docker build -t ajoguard .
+docker run -p 3000:3000 --env-file .env ajoguard
 ```
 
-Make sure Redis is running before starting the server. The application will fail to start if it cannot connect to Redis.
+### Heroku / Railway / Render (Procfile)
+
+```bash
+npm run build
+node --max-old-space-size=512 dist/src/main.js
+```
+
+Make sure Redis is reachable before starting the application — startup depends on the queue connection.
+
+---
+
+## Health & Observability
+
+- `GET /health` — liveness probe (process alive + uptime)
+- `GET /health/ready` — readiness probe (DB connectivity; 503 when down)
+
+Every request is given a `X-Request-Id` header and logged as a single structured JSON line (method, path, status, duration, actor) via the request logger middleware. Errors are returned in a uniform JSON envelope with a `requestId` for tracing.
 
 ---
 
 ## Contributing
 
-This is a solo project built as a proof of work demonstrating production-grade backend engineering. Issues and suggestions are welcome via GitHub Issues.
+This is a solo project and a proof of work demonstrating production-grade backend engineering. Issues and suggestions are welcome via GitHub Issues.
 
 ---
 

@@ -1,4 +1,11 @@
-import { IsString, IsNotEmpty, IsInt, IsPositive, IsOptional, Min } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsInt,
+  IsPositive,
+  IsOptional,
+  Min,
+} from 'class-validator';
 
 export class CreateGroupDto {
   @IsString()
@@ -9,9 +16,13 @@ export class CreateGroupDto {
   @IsOptional()
   description?: string;
 
+  /**
+   * Required cycle contribution per member, in NAIRA (integer).
+   * Converted to kobo (x100) server-side before storage.
+   */
   @IsInt()
   @IsPositive()
-  @Min(1) // minimum 100 kobo = ₦1
+  @Min(1) // minimum ₦1
   cycleAmount: number;
 
   @IsString()

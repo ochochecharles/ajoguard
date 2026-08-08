@@ -6,11 +6,7 @@ import { AuditModule } from 'src/audit/audit.module';
 import { AuthModule } from 'src/auth/auth.module';
 
 @Module({
-  imports: [
-    ReconciliationModule,
-    AuditModule,
-    AuthModule,
-  ],
+  imports: [ReconciliationModule, AuditModule, AuthModule],
   providers: [GroupsService],
   controllers: [GroupsController],
   exports: [GroupsService],

@@ -7,12 +7,11 @@ import {
   timestamp,
   jsonb,
   bigserial,
-  uniqueIndex,
   pgEnum,
 } from 'drizzle-orm/pg-core';
 
 // Enums
-export const channelEnum = pgEnum('channel', ['SMS', 'WHATSAPP', 'WEB']);
+export const channelEnum = pgEnum('channel', ['WEB', 'TELEGRAM']);
 
 export const contributionStatusEnum = pgEnum('contribution_status', [
   'PENDING',
@@ -20,15 +19,9 @@ export const contributionStatusEnum = pgEnum('contribution_status', [
   'FAILED',
 ]);
 
-export const memberStatusEnum = pgEnum('member_status', [
-  'ACTIVE',
-  'INACTIVE',
-]);
+export const memberStatusEnum = pgEnum('member_status', ['ACTIVE', 'INACTIVE']);
 
-export const memberRoleEnum = pgEnum('member_role', [
-  'MEMBER',
-  'COLLECTOR',
-]);
+export const memberRoleEnum = pgEnum('member_role', ['MEMBER', 'COLLECTOR']);
 
 export const reconciliationStatusEnum = pgEnum('reconciliation_status', [
   'HEALTHY',
@@ -38,98 +31,118 @@ export const reconciliationStatusEnum = pgEnum('reconciliation_status', [
 // Groups
 
 export const groups = pgTable('groups', {
-  id:            uuid('id').primaryKey().defaultRandom(),
-  name:          text('name').notNull(),
-  description:   text('description'),
-  cycleAmount:   integer('cycle_amount').notNull(), // in kobo
-  cycleInterval: text('cycle_interval').notNull(),  // "weekly" | "monthly"
-  cycleStartDate:  timestamp('cycle_start_date'),   // when current cycle began
-  totalMembers:    integer('total_members').notNull().default(0), // members in rotation
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  joinCode: text('join_code').notNull().unique(), // short code members use to join
+  description: text('description'),
+  cycleAmount: integer('cycle_amount').notNull(), // in kobo
+  cycleInterval: text('cycle_interval').notNull(), // "weekly" | "monthly"
+  cycleStartDate: timestamp('cycle_start_date'), // when current cycle began
+  totalMembers: integer('total_members').notNull().default(0), // members in rotation
   currentPosition: integer('current_position').notNull().default(1), // whose turn
-  isActive:      boolean('is_active').notNull().default(true),
-  createdAt:     timestamp('created_at').notNull().defaultNow(),
-  updatedAt:     timestamp('updated_at').notNull().defaultNow(),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
 // Members
 
 export const members = pgTable('members', {
-  id:          uuid('id').primaryKey().defaultRandom(),
-  name:        text('name').notNull(),
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
   phoneNumber: text('phone_number'),
-  email:       text('email').unique(),
-  role:        memberRoleEnum('role').notNull().default('MEMBER'),
-  status:      memberStatusEnum('status').notNull().default('ACTIVE'),
-  groupId:     uuid('group_id').notNull().references(() => groups.id),
+  telegramUserId: text('telegram_user_id'),
+  email: text('email').unique(),
+  role: memberRoleEnum('role').notNull().default('MEMBER'),
+  status: memberStatusEnum('status').notNull().default('ACTIVE'),
+  groupId: uuid('group_id')
+    .notNull()
+    .references(() => groups.id),
   payoutOrder: integer('payout_order'), // position in rotation e.g 1, 2, 3
-  createdAt:   timestamp('created_at').notNull().defaultNow(),
-  updatedAt:   timestamp('updated_at').notNull().defaultNow(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
 // Contributions
 
 export const contributions = pgTable('contributions', {
-  id:             uuid('id').primaryKey().defaultRandom(),
-  amount:         integer('amount').notNull(),           // in kobo
-  channel:        channelEnum('channel').notNull(),
-  status:         contributionStatusEnum('status').notNull().default('PENDING'),
+  id: uuid('id').primaryKey().defaultRandom(),
+  amount: integer('amount').notNull(), // in kobo
+  channel: channelEnum('channel').notNull(),
+  status: contributionStatusEnum('status').notNull().default('PENDING'),
   idempotencyKey: text('idempotency_key').notNull().unique(),
-  rawPayload:     text('raw_payload').notNull(),         // original input, never deleted
-  failureReason:  text('failure_reason'),
-  processedAt:    timestamp('processed_at'),
-  memberId:       uuid('member_id').notNull().references(() => members.id),
-  collectorId:    uuid('collector_id').notNull().references(() => members.id),
-  groupId:        uuid('group_id').notNull().references(() => groups.id),
-  receivedAt:     timestamp('received_at').notNull().defaultNow(),
-  createdAt:      timestamp('created_at').notNull().defaultNow(),
-  updatedAt:      timestamp('updated_at').notNull().defaultNow(),
+  rawPayload: text('raw_payload').notNull(), // original input, never deleted
+  failureReason: text('failure_reason'),
+  processedAt: timestamp('processed_at'),
+  memberId: uuid('member_id')
+    .notNull()
+    .references(() => members.id),
+  collectorId: uuid('collector_id')
+    .notNull()
+    .references(() => members.id),
+  groupId: uuid('group_id')
+    .notNull()
+    .references(() => groups.id),
+  receivedAt: timestamp('received_at').notNull().defaultNow(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
 // Audit Logs
 
 export const auditLogs = pgTable('audit_logs', {
-  id:          bigserial('id', { mode: 'number' }).primaryKey(),
-  eventId:     text('event_id').notNull().unique(),
-  groupId:     uuid('group_id').notNull().references(() => groups.id),
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  eventId: text('event_id').notNull().unique(),
+  groupId: uuid('group_id')
+    .notNull()
+    .references(() => groups.id),
   sequenceNum: integer('sequence_num').notNull(),
-  entryData:   jsonb('entry_data').notNull(),
-  prevHash:    text('prev_hash').notNull(),
-  entryHash:   text('entry_hash').notNull(),
-  hmacSig:     text('hmac_sig').notNull(),
-  createdAt:   timestamp('created_at').notNull().defaultNow(),
+  entryData: jsonb('entry_data').notNull(),
+  prevHash: text('prev_hash').notNull(),
+  entryHash: text('entry_hash').notNull(),
+  hmacSig: text('hmac_sig').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
 // Notification Logs
 
 export const notificationLogs = pgTable('notification_logs', {
-  id:        uuid('id').primaryKey().defaultRandom(),
-  recipient: text('recipient').notNull(),   // phone number
-  channel:   channelEnum('channel').notNull(),
-  message:   text('message').notNull(),
-  status:    text('status').notNull(),      // SENT | FAILED | PENDING
-  attempts:  integer('attempts').notNull().default(0),
-  sentAt:    timestamp('sent_at'),
+  id: uuid('id').primaryKey().defaultRandom(),
+  recipient: text('recipient').notNull(), // phone number
+  channel: channelEnum('channel').notNull(),
+  message: text('message').notNull(),
+  status: text('status').notNull(), // SENT | FAILED | PENDING
+  attempts: integer('attempts').notNull().default(0),
+  sentAt: timestamp('sent_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
 export const payouts = pgTable('payouts', {
-  id:              uuid('id').primaryKey().defaultRandom(),
-  groupId:         uuid('group_id').notNull().references(() => groups.id),
-  recipientId:     uuid('recipient_id').notNull().references(() => members.id),
-  recordedById:    uuid('recorded_by_id').notNull().references(() => members.id),
-  amount:          integer('amount').notNull(),        // in kobo
+  id: uuid('id').primaryKey().defaultRandom(),
+  groupId: uuid('group_id')
+    .notNull()
+    .references(() => groups.id),
+  recipientId: uuid('recipient_id')
+    .notNull()
+    .references(() => members.id),
+  recordedById: uuid('recorded_by_id')
+    .notNull()
+    .references(() => members.id),
+  amount: integer('amount').notNull(), // in kobo
   cycleIdentifier: text('cycle_identifier').notNull(), // e.g "2026-W17"
-  payoutDate:      timestamp('payout_date').notNull(),
-  createdAt:       timestamp('created_at').notNull().defaultNow(),
+  payoutDate: timestamp('payout_date').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
 export const reconciliationLogs = pgTable('reconciliation_logs', {
-  id:               uuid('id').primaryKey().defaultRandom(),
-  groupId:          uuid('group_id').notNull().references(() => groups.id),
-  cycleIdentifier:  text('cycle_identifier').notNull(),
-  totalExpected:    integer('total_expected').notNull(),
-  totalCollected:   integer('total_collected').notNull(),
-  missingMembers:   jsonb('missing_members').notNull().default([]),
-  status:           reconciliationStatusEnum('status').notNull(),
-  checkedAt:        timestamp('checked_at').notNull().defaultNow(),
+  id: uuid('id').primaryKey().defaultRandom(),
+  groupId: uuid('group_id')
+    .notNull()
+    .references(() => groups.id),
+  cycleIdentifier: text('cycle_identifier').notNull(),
+  totalExpected: integer('total_expected').notNull(),
+  totalCollected: integer('total_collected').notNull(),
+  missingMembers: jsonb('missing_members').notNull().default([]),
+  status: reconciliationStatusEnum('status').notNull(),
+  checkedAt: timestamp('checked_at').notNull().defaultNow(),
 });

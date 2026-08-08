@@ -20,13 +20,13 @@ import { AuthModule } from 'src/auth/auth.module';
     BullModule.registerQueue({
       name: 'contributions', // queue name
       defaultJobOptions: {
-        attempts: 3,        
+        attempts: 3,
         backoff: {
           type: 'exponential', // wait longer between each retry
-          delay: 2000,         // start at 2 seconds
+          delay: 2000, // start at 2 seconds
         },
         removeOnComplete: false, // keep completed jobs for inspection
-        removeOnFail: false,     // keep failed jobs for inspection
+        removeOnFail: false, // keep failed jobs for inspection
       },
     }),
   ],

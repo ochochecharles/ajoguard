@@ -1,50 +1,31 @@
-// src/notification/notification.service.ts
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { DrizzleDbService } from '../db/drizzle_db/drizzle_db.service';
-import {
-  members,
-  groups,
-  contributions,
-  notificationLogs,
-} from '../db/schema';
+import { members, groups, contributions, notificationLogs } from '../db/schema';
 import { eq, and } from 'drizzle-orm';
 import { ContributionEvent } from '../contributions/interfaces/contribution-event.interface';
+import { TelegramBotService } from '../ingest/telegram/telegram.bot.service';
 
 @Injectable()
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
-  private readonly atClient: any;
 
   constructor(
     private readonly drizzleDbService: DrizzleDbService,
-    private readonly configService: ConfigService,
-  ) {
-    // Initialise Africa's Talking client
-    const AfricasTalking = require('africastalking');
-    this.atClient = AfricasTalking({
-      apiKey:   this.configService.get<string>('AT_API_KEY')!,
-      username: this.configService.get<string>('AT_USERNAME')!,
-    });
-  }
+    private readonly telegramBotService: TelegramBotService,
+  ) {}
 
   // ─── Send contribution confirmation ───────────────────
   // Called after every successful contribution
-  async sendContributionConfirmation(
-    event: ContributionEvent,
-  ): Promise<void> {
-
+  async sendContributionConfirmation(event: ContributionEvent): Promise<void> {
     // Get member details
     const [member] = await this.drizzleDbService.db
       .select()
       .from(members)
       .where(eq(members.id, event.memberId));
 
-    if (!member || !member.phoneNumber) {
-      this.logger.warn(
-        `Member ${event.memberId} has no phone number. Skipping confirmation.`,
-      );
+    if (!member) {
+      this.logger.warn(`Member ${event.memberId} not found. Skipping.`);
       return;
     }
 
@@ -65,7 +46,7 @@ export class NotificationService {
       `Ref: ${event.eventId.slice(0, 8).toUpperCase()}\n` +
       `Date: ${new Date(event.receivedAt).toLocaleDateString()}`;
 
-    await this.sendSms(member.phoneNumber, message);
+    await this.notify(member.telegramUserId, message);
   }
 
   // ─── Send missing payment alert to collector ──────────
@@ -78,7 +59,6 @@ export class NotificationService {
       amountMissing: number;
     }>,
   ): Promise<void> {
-
     if (missingMembers.length === 0) return;
 
     // Find the collector for this group
@@ -93,10 +73,8 @@ export class NotificationService {
         ),
       );
 
-    if (!collector || !collector.phoneNumber) {
-      this.logger.warn(
-        `No collector with phone number found for group ${groupId}`,
-      );
+    if (!collector) {
+      this.logger.warn(`No collector found for group ${groupId}`);
       return;
     }
 
@@ -106,9 +84,7 @@ export class NotificationService {
       .from(groups)
       .where(eq(groups.id, groupId));
 
-    const missingNames = missingMembers
-      .map((m) => m.memberName)
-      .join(', ');
+    const missingNames = missingMembers.map((m) => m.memberName).join(', ');
 
     const message =
       `⚠️ AjoGuard Alert - ${group?.name}:\n` +
@@ -116,25 +92,29 @@ export class NotificationService {
       `${missingNames}\n` +
       `Please follow up with them.`;
 
-    await this.sendSms(collector.phoneNumber, message);
+    await this.notify(collector.telegramUserId, message);
 
     // Also notify each missing member directly
     for (const missing of missingMembers) {
-      if (!missing.phoneNumber) continue;
+      const [member] = await this.drizzleDbService.db
+        .select()
+        .from(members)
+        .where(eq(members.phoneNumber, missing.phoneNumber ?? ''));
+
+      if (!member) continue;
 
       const memberMessage =
         `⚠️ AjoGuard: You have a pending contribution of ` +
         `₦${missing.amountMissing / 100} for "${group?.name}".\n` +
         `Please pay as soon as possible.`;
 
-      await this.sendSms(missing.phoneNumber, memberMessage);
+      await this.notify(member.telegramUserId, memberMessage);
     }
   }
 
   // ─── Send weekly group summary ────────────────────────
   // Called by the weekly scheduler
   async sendWeeklySummary(groupId: string): Promise<void> {
-
     const [group] = await this.drizzleDbService.db
       .select()
       .from(groups)
@@ -146,12 +126,7 @@ export class NotificationService {
     const activeMembers = await this.drizzleDbService.db
       .select()
       .from(members)
-      .where(
-        and(
-          eq(members.groupId, groupId),
-          eq(members.status, 'ACTIVE'),
-        ),
-      );
+      .where(and(eq(members.groupId, groupId), eq(members.status, 'ACTIVE')));
 
     // Get all processed contributions
     const allContributions = await this.drizzleDbService.db
@@ -183,10 +158,9 @@ export class NotificationService {
       `Next payout: ${nextRecipient?.name ?? 'TBD'}\n` +
       `Stay consistent! 💪`;
 
-    // Send summary to every active member with a phone number
+    // Send summary to every active member with a linked Telegram account
     for (const member of activeMembers) {
-      if (!member.phoneNumber) continue;
-      await this.sendSms(member.phoneNumber, summary);
+      await this.notify(member.telegramUserId, summary);
     }
 
     this.logger.log(
@@ -194,41 +168,38 @@ export class NotificationService {
     );
   }
 
-  // ─── Core SMS sender ──────────────────────────────────
-  // All notification methods funnel through here
-  private async sendSms(
-    phoneNumber: string,
+  // ─── Telegram sender ──────────────────────────────────
+  // All notification methods funnel through here.
+  // Sending to a user requires their linked Telegram chat id;
+  // if not linked, the notification is skipped (never a hard failure).
+  private async notify(
+    chatId: string | null | undefined,
     message: string,
   ): Promise<void> {
+    if (!chatId) {
+      this.logger.warn('Recipient has no linked Telegram account; skipping.');
+      return;
+    }
 
     try {
-      const sms = this.atClient.SMS;
+      const ok = await this.telegramBotService.sendMessage(chatId, message);
+      if (!ok) throw new Error('sendMessage returned false');
 
-      await sms.send({
-        to:   [phoneNumber],
-        from: this.configService.get<string>('AT_SENDER_ID'),
-        message,
-      });
+      await this.logNotification(chatId, message, 'SENT');
 
-      // Log successful send
-      await this.logNotification(phoneNumber, message, 'SENT');
-
-      this.logger.log(
-        `SMS sent to ${phoneNumber}: ${message.slice(0, 50)}...`,
-      );
-
+      this.logger.log(`Telegram sent to ${chatId}: ${message.slice(0, 50)}...`);
     } catch (error) {
       // Log failed send but do not throw
       // A failed notification should never fail the contribution
       await this.logNotification(
-        phoneNumber,
+        chatId,
         message,
         'FAILED',
         (error as Error).message,
       );
 
       this.logger.error(
-        `Failed to send SMS to ${phoneNumber}: ${(error as Error).message}`,
+        `Failed to send Telegram to ${chatId}: ${(error as Error).message}`,
       );
     }
   }
@@ -241,16 +212,14 @@ export class NotificationService {
     failureReason?: string,
   ): Promise<void> {
     try {
-      await this.drizzleDbService.db
-        .insert(notificationLogs)
-        .values({
-          recipient,
-          channel:   'SMS',
-          message,
-          status,
-          attempts:  1,
-          sentAt:    status === 'SENT' ? new Date() : null,
-        });
+      await this.drizzleDbService.db.insert(notificationLogs).values({
+        recipient,
+        channel: 'TELEGRAM',
+        message,
+        status,
+        attempts: 1,
+        sentAt: status === 'SENT' ? new Date() : null,
+      });
     } catch (error) {
       // Never let logging failure break anything
       this.logger.error(
@@ -259,19 +228,19 @@ export class NotificationService {
     }
   }
 
-    @Cron(CronExpression.EVERY_WEEK)
-    async runWeeklySummaries(): Promise<void> {
+  @Cron(CronExpression.EVERY_WEEK)
+  async runWeeklySummaries(): Promise<void> {
     this.logger.log('Running weekly summaries for all active groups');
 
     const allGroups = await this.drizzleDbService.db
-        .select()
-        .from(groups)
-        .where(eq(groups.isActive, true));
+      .select()
+      .from(groups)
+      .where(eq(groups.isActive, true));
 
     for (const group of allGroups) {
-        await this.sendWeeklySummary(group.id);
+      await this.sendWeeklySummary(group.id);
     }
 
     this.logger.log('Weekly summaries complete');
-    }
+  }
 }

@@ -9,7 +9,9 @@ describe('ContributionProcessorService', () => {
       providers: [ContributionProcessorService],
     }).compile();
 
-    service = module.get<ContributionProcessorService>(ContributionProcessorService);
+    service = module.get<ContributionProcessorService>(
+      ContributionProcessorService,
+    );
   });
 
   it('should be defined', () => {
