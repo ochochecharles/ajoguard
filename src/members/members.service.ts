@@ -138,6 +138,6 @@ export class MembersService {
   // Strips internal columns (telegramUserId) before returning
   private toPublicMember(member: typeof members.$inferSelect) {
     const { telegramUserId, ...publicMember } = member;
-    return publicMember;
+    return { ...publicMember, isTelegramLinked: telegramUserId != null };
   }
 }
