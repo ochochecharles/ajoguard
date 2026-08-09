@@ -63,6 +63,8 @@ export class GroupsController {
   @ApiOperation({
     summary: 'Get the join code for a group (to invite members)',
   })
+  @UseGuards(RolesGuard)
+  @Roles('COLLECTOR')
   @Get(':id/join-code')
   getJoinCode(@Param('id') id: string, @Req() req: any) {
     this.assertGroupAccess(id, req.user.groupId);
